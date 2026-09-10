@@ -1,0 +1,20 @@
+# NurseLog AI - Requirements
+# Prototype MVP — Documentation Infirmière IA Belgique
+
+# Interface utilisateur
+streamlit>=1.30.0
+
+# Pour exports PDF (production)
+# reportlab>=4.0.0
+
+# Pour intégration eHealth (production)
+# requests>=2.31.0
+# pydantic>=2.5.0
+
+# Pour reconnaissance vocale (production)
+# openai>=1.10.0
+# ou whisper (open-source)
+
+# Développement & tests
+pytest>=7.4.0
+python-dotenv>=1.0.0
