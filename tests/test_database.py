@@ -167,4 +167,34 @@ class TestDatabaseErrors:
         
         inf_id = sauvegarder_infirmier("Test", "INF-NB", "Test", "Français")
         assert recuperer_brouillon(inf_id) is None
+
+    def test_generer_csv_historique(self, db_temp):
+        """Test de génération CSV."""
+        infirmier_id = sauvegarder_infirmier("Test", "INF-CSV", "Test", "Français")
         
+        # Sauvegarder plusieurs rapports
+        sauvegarder_rapport(infirmier_id, RAPPORT_TEST)
+        
+        # Générer le CSV
+        from database import generer_csv_historique
+        csv_content = generer_csv_historique(infirmier_id)
+        
+        # Vérifier que le contenu n'est pas vide
+        assert csv_content is not None
+        assert len(csv_content) > 0
+        
+        # Vérifier que les données attendues sont présentes
+        assert "Durand" in csv_content
+        assert "Sophie" in csv_content
+        assert "3B-07" in csv_content
+        assert "2025-06-15" in csv_content
+        
+        # Vérifier que le CSV a plusieurs lignes
+        lines = csv_content.split("\n")
+        assert len(lines) >= 2  # En-tête + données
+        
+        # Vérifier les colonnes
+        header = lines[0]
+        assert "Patient Nom" in header
+        assert "Patient Prénom" in header
+        assert "Chambre" in header        

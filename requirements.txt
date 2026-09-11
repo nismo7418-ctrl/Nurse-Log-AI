@@ -5,11 +5,11 @@
 streamlit>=1.30.0
 
 # Pour exports PDF (production)
-# reportlab>=4.0.0
+reportlab>=4.0.0
 
 # Pour intégration eHealth (production)
-# requests>=2.31.0
-# pydantic>=2.5.0
+requests>=2.31.0
+pydantic>=2.5.0
 
 # Pour reconnaissance vocale (production)
 openai>=1.10.0
@@ -20,3 +20,6 @@ reportlab>=4.0.0
 
 # Développement & tests
 pytest>=7.4.0
+
+# Pour CSV export
+pandas>=2.0.0

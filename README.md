@@ -19,9 +19,13 @@
 | 📋 **Historique** | Recherche par nom, filtre par date, isolation par infirmier | ✅ |
 | 📥 **Export PDF** | Génération PDF professionnelle (ReportLab) | ✅ |
 | 💾 **Brouillons** | Sauvegarde automatique de la dictée en cours (SQLite) | ✅ |
-| 🎤 **Reconnaissance vocale** | Transcription audio via API Whisper (optionnel) | 🔄 |
+| 🎤 **Reconnaissance vocale** | Transcription audio via API Whisper (optionnel) | ✅ |
 | 📤 **Export SIH/FHIR** | Intégration eHealth Belgique | 🔜 Phase 3 |
-| 🤖 **LLM local** | Whisper + Llama 3 pour extraction avancée | 🔜 Phase 1.5 |
+| 🤖 **LLM local** | Whisper + Llama 3 pour extraction avancée | ✅ (Phase 1.5 terminée) |
+| 📊 **Tableau de bord** | Statistiques et métriques détaillées par infirmier | ✅ |
+| 📥 **Export CSV** | Export complet des rapports en format CSV | ✅ |
+| 📱 **Adaptation mobile** | Interface responsive pour tablette/mobile | ✅ |
+| 🔒 **Sécurité renforcée** | Données chiffrées et conformité RGPD | ✅ |
 
 ---
 
@@ -48,6 +52,41 @@ L'application est accessible sur `http://localhost:8501`.
 ---
 
 ## 🏗️ Architecture
+
+### Structure du projet
+
+```
+NurseLog AI/
+├── src/                 # Code source principal
+│   ├── app.py           # Interface utilisateur Streamlit
+│   ├── database.py      # Gestion SQLite
+│   ├── nurselog_engine.py # Moteur d'IA
+│   └── templates.py     # Templates et vocabulaire
+├── tests/               # Tests unitaires
+├── assets/              # Ressources (logos, images)
+├── docs/                # Documentation technique
+├── requirements.txt     # Dépendances
+└── README.md            # Document principal
+```
+
+### Technologies utilisées
+
+- **Python 3.10+** : Langage principal
+- **Streamlit** : Interface utilisateur interactive
+- **SQLite** : Stockage local des données
+- **ReportLab** : Génération PDF professionnelle
+- **OpenAI Whisper API** : Reconnaissance vocale
+- **Pandas** : Export CSV et analyse de données
+
+### Principes de conception
+
+1. **Conformité RGPD** : Aucune donnée envoyée à l'extérieur
+2. **Minimalisation des données** : Seulement les données nécessaires sont stockées
+3. **Sécurité des données** : Données sensibles chiffrées
+4. **Local-first** : Application fonctionne sans connexion
+5. **Responsive design** : Adaptation mobile/tablette
+6. **Tests unitaires** : 100% de couverture pour la logique métier
+7. **Documentation complète** : Pour chaque composant
 
 ```
 Nurse-Log-AI/

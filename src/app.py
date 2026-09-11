@@ -98,6 +98,18 @@ st.markdown("""
     /* Responsive: empiler les colonnes sur mobile/tablette */
     @media (max-width: 768px) {
         .main-header { font-size: 1.8rem; }
+        .stButton > button { padding: 10px 16px; font-size: 0.9rem; }
+        /* Colonne unique sur mobile */
+        .column-stack-mobile {
+            display: flex;
+            flex-direction: column;
+        }
+    }
+    /* Adaptation pour tablette et mobile */
+    @media (max-width: 1024px) {
+        .main-header { font-size: 2rem; }
+        .sub-header { font-size: 1rem; }
+    }
         .sub-header { font-size: 0.95rem; }
         .stButton > button { padding: 10px 16px; font-size: 0.9rem; }
     }
@@ -217,8 +229,12 @@ if page == "🎙️ Dictée Rapide":
                     st.session_state.infirmier_id,
                     patient_nom, patient_prenom, dictée, ""
                 )
+                # Afficher un message de succès pour la sauvegarde
+                if 'brouillon_saved' not in st.session_state:
+                    st.session_state.brouillon_saved = True
             except Exception as e:
                 print(f"Erreur lors de la sauvegarde du brouillon : {e}")  # Log
+                st.warning(f"⚠️ Échec de la sauvegarde automatique : {str(e)}")
                 pass  # Brouillon est optionnel, ne pas bloquer
         
         # Option pour l'enregistrement vocal
@@ -453,7 +469,8 @@ elif page == "📋 Historique":
     with col_f1:
         recherche_nom = st.text_input("🔍 Rechercher par nom patient", placeholder="ex: Dupont")
     with col_f2:
-        date_filtre = st.date_input("📅 Filtrer par date (optionnel)", value=None)
+        date_debut = st.date_input("📅 Date de début", value=datetime.date.today() - datetime.timedelta(days=30))
+        date_fin = st.date_input("📅 Date de fin", value=datetime.date.today())
     with col_f3:
         st.write("")  # spacer
         btn_tous = st.button("🔄 Réinitialiser")
@@ -471,17 +488,15 @@ elif page == "📋 Historique":
             or recherche_lower in r.get("patient", {}).get("prenom", "").lower()
         ]
     
-    if date_filtre:
-        date_str = str(date_filtre)
+    # Filtrer par date
+    if date_debut and date_fin:
         historique_db = [
             r for r in historique_db
-            if r.get("metadata", {}).get("date", "") == date_str
+            if date_debut <= datetime.datetime.strptime(r.get("metadata", {}).get("date", ""), '%Y-%m-%d').date() <= date_fin
         ]
     
     if not historique_db:
         st.info("📭 Aucun rapport trouvé. Commencez par créer un rapport !")
-        # Bouton pour export CSV
-        st.markdown('<span class="badge-bientot">📥 Export CSV — Bientôt disponible</span>', unsafe_allow_html=True)
     else:
         st.success(f"📊 {len(historique_db)} rapport(s) trouvé(s)")
         for i, rapport_hist in enumerate(historique_db):
@@ -519,6 +534,7 @@ elif page == "📋 Historique":
         # Bouton pour export CSV
         st.markdown("---")
         st.subheader("📤 Export des données")
+        st.info("Exporter l'historique complet au format CSV pour analyse")
         if st.button("📥 Télécharger l'historique en CSV"):
             try:
                 from database import generer_csv_historique
@@ -534,7 +550,7 @@ elif page == "📋 Historique":
                     st.info("Aucun rapport à exporter.")
             except Exception as e:
                 st.error(f"Erreur lors de l'export CSV : {e}")
-                
+        
         # Bouton pour export PDF (optionnel)
         st.markdown('<span class="badge-bientot">📤 Export PDF — Bientôt disponible</span>', unsafe_allow_html=True)
 # ============ PAGE: TABLEAU DE BORD ============
@@ -582,6 +598,35 @@ elif page == "📊 Tableau de bord":
                 st.info("Aucune donnée disponible pour les graphiques.")
         else:
             st.info("Aucun rapport enregistré. Commencez à documenter !")
+        
+        # Ajout de statistiques supplémentaires
+        st.subheader("Métriques détaillées")
+        
+        # Types de rapports
+        type_rapports = {}
+        for r in historique:
+            type_rapport = r.get("metadata", {}).get("type_rapport", "Inconnu")
+            if type_rapport not in type_rapports:
+                type_rapports[type_rapport] = 0
+            type_rapports[type_rapport] += 1
+        
+        if type_rapports:
+            st.markdown("**Types de rapports générés :**")
+            for type_r, count in type_rapports.items():
+                st.markdown(f"- {type_r}: {count}")
+        
+        # Quart de travail
+        quarts = {}
+        for r in historique:
+            quart = r.get("metadata", {}).get("quart", "Inconnu")
+            if quart not in quarts:
+                quarts[quart] = 0
+            quarts[quart] += 1
+        
+        if quarts:
+            st.markdown("**Distribution par quart :**")
+            for quart, count in quarts.items():
+                st.markdown(f"- {quart}: {count}")
     else:
         st.warning("Veuillez vous connecter via les paramètres pour voir vos statistiques.")
 
