@@ -211,7 +211,7 @@ def recuperer_stats(infirmier_id: int | None = None) -> dict:
 
 
 # Initialiser la base au premier import
-initialiser_base()  # Active pour l'application principale
+# initialiser_base()  # Désactivé pour éviter les effets de bord dans le déploiement
 
 
 def sauvegarder_brouillon(infirmier_id: int, patient_nom: str, patient_prenom: str, texte: str, type_rapport: str = "") -> int:

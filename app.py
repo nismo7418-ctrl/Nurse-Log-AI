@@ -7,6 +7,10 @@ import copy
 import datetime
 import json
 import os
+import sys
+
+# Ajouter le dossier src au chemin d'import
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
 import streamlit as st
 from nurselog_engine import NurseLogEngine
@@ -121,12 +125,14 @@ engine = NurseLogEngine()
 
 # ============ INITIALISATION BASE DE DONNEES ============
 from database import initialiser_base
-# initialiser_base()  # Désactivé pour éviter les effets de bord
+initialiser_base()  # Activer l'initialisation pour l'application principale
 
 # ============ INITIALISATION PDF EXPORT ============
+test_pdf_available = False
 try:
     from database import exporter_pdf_rapport
     PDF_EXPORT_AVAILABLE = True
+    test_pdf_available = True
 except ImportError:
     PDF_EXPORT_AVAILABLE = False
 
