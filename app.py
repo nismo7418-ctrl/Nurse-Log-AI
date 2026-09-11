@@ -121,7 +121,7 @@ engine = NurseLogEngine()
 
 # ============ INITIALISATION BASE DE DONNEES ============
 from database import initialiser_base
-initialiser_base()
+# initialiser_base()  # Désactivé pour éviter les effets de bord
 
 # ============ INITIALISATION PDF EXPORT ============
 try:
@@ -218,8 +218,8 @@ if page == "🎙️ Dictée Rapide":
                     patient_nom, patient_prenom, dictée, ""
                 )
             except Exception as e:
-                print(f"Erreur lors de la sauvegarde du brouillon : {e}")  # Log
-                pass  # Brouillon est optionnel, ne pas bloquer
+                st.error(f"Erreur lors de la sauvegarde du brouillon : {e}")  # Log
+                # Brouillon est optionnel, ne pas bloquer
         
         # Option pour l'enregistrement vocal
         st.markdown("### 🎙️ Enregistrement vocal")
