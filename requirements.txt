@@ -12,9 +12,11 @@ streamlit>=1.30.0
 # pydantic>=2.5.0
 
 # Pour reconnaissance vocale (production)
-# openai>=1.10.0
+openai>=1.10.0
 # ou whisper (open-source)
+
+# Pour export PDF (Phase 1.5)
+reportlab>=4.0.0
 
 # Développement & tests
 pytest>=7.4.0
-python-dotenv>=1.0.0

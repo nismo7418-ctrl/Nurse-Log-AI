@@ -41,6 +41,14 @@ class NurseLogEngine:
         self.version = "0.1.0"
         self.langue_par_defaut = "Français"
         self._initialiser_modeles_extraction()
+        
+        # Pour les futures améliorations avec LLM
+        self.llm_available = False
+        try:
+            import transformers
+            self.llm_available = True
+        except ImportError:
+            pass
 
     # ========================================================================
     # INITIALISATION
@@ -50,12 +58,12 @@ class NurseLogEngine:
         """Compile les expressions régulières pour l'extraction de données."""
         self.regex_signes_vitaux = {
             "tension": re.compile(
-                r'(?:tension|TA)\s*(?:artérielle)?\s*(?:de\s*)?'
+                r'(?:tension|TA|bloeddruk)\s*(?:artérielle)?\s*(?:de\s*)?'
                 r'(?:=\s*|:\s*)?(\d{2,3})\s*/\s*(\d{2,3})',
                 re.IGNORECASE
             ),
             "pouls": re.compile(
-                r'(?:pouls|fréquence\s*cardiaque|FC)\s*(?:de\s*)?'
+                r'(?:pouls|fréquence\s*cardiaque|FC|pols)\s*(?:de\s*)?'
                 r'(?:=\s*|:\s*)?(\d{2,3})\s*(?:bpm)?',
                 re.IGNORECASE
             ),
@@ -97,7 +105,7 @@ class NurseLogEngine:
         )
 
         self.regex_medicament = re.compile(
-            r'([A-Z][a-zàâéèêîôûùçñ]+(?:\s+[A-Z][a-zàâéèêîôûùçñ]+)*)'
+            r'([A-Za-zàâéèêîôûùçñ]+(?:\s+[A-Za-zàâéèêîôûùçñ]+)*)'
             r'\s+(\d+(?:\.\d+)?)\s*(mg|ml|g|UI|µg|microg)',
             re.IGNORECASE
         )
@@ -177,6 +185,7 @@ class NurseLogEngine:
         rapport["patient"]["prenom"] = patient_data.get("prenom", "")
         rapport["patient"]["date_naissance"] = patient_data.get("date_naissance", "")
         rapport["patient"]["chambre"] = patient_data.get("chambre", "")
+        rapport["patient"]["numero_dossier"] = patient_data.get("numero_dossier", "")
 
     # ========================================================================
     # EXTRACTION DES SIGNES VITAUX
@@ -374,6 +383,14 @@ class NurseLogEngine:
             ("soins d'hygiène", "Soins d'hygiène réalisés"),
             ("éducation", "Éducation thérapeutique dispensée"),
             ("glycémie", "Glycémie mesurée"),
+            # ---- Néerlandais (public cible NL) ----
+            ("wondverzorging", "Pansement / soins de plaie (wondverzorging)"),
+            ("wond", "Soins de plaie (wond)"),
+            ("injectie", "Injection administrée (injectie)"),
+            ("infuusie", "Perfusion en cours (infuusie)"),
+            ("suigen", "Aspiration réalisée (suigen)"),
+            ("hygiëne", "Soins d'hygiène réalisés (hygiëne)"),
+            ("bloedsuiker", "Glycémie mesurée (bloedsuiker)"),
         ]
 
         # Tracker des motifs déjà détectés pour éviter doublons
@@ -445,6 +462,14 @@ class NurseLogEngine:
                     phrases.append(segment)
         return phrases
 
+    def transcrire_audio(self, audio_path: str) -> str:
+        """
+        Méthode pour simuler la transcription vocale.
+        En production, cela appellerait l'API Whisper.
+        """
+        # Pour le prototype, on retourne un message de simulation
+        return "Transcription simulée du fichier audio"
+
     # ========================================================================
     # EXTRACTION DES ALERTES
     # ========================================================================
@@ -476,6 +501,14 @@ class NurseLogEngine:
             ("confusion", "⚠️ Confusion / délire"),
             ("sang", "⚠️ Saignement"),
             ("hémorragie", "🚨 Hémorragie"),
+            # ---- Néerlandais (public cible NL) ----
+            ("valrisico", "⚠️ Risque de chute — précautions anti-chute en place"),
+            ("dwang", "⚠️ Contrainte physique — vérifier légalité"),
+            ("eind van leven", "🕊️ Fin de vie — protocole palliatif"),
+            ("palliatieve", "🕊️ Soins palliatifs"),
+            ("arts informeren", "📞 Médecin à alerter"),
+            ("spoed", "🚨 Situation urgente"),
+            ("bloeding", "⚠️ Saignement (bloeding)"),
         ]
 
         for motif, alerte in alertes_mapping:
@@ -646,27 +679,52 @@ class NurseLogEngine:
     # ========================================================================
 
     def _extraire_medicaments(self, texte: str) -> List[Dict]:
-        """Tente d'extraire les informations sur les médicaments."""
+        """Tente d'extraire TOUTES les informations sur les médicaments (findall)."""
         medicaments = []
         
-        match = self.regex_medicament.search(texte)
-        if match:
-            nom = match.group(1)
+        # Trouver TOUS les médicaments avec dose (pas seulement le premier)
+        for match in self.regex_medicament.finditer(texte):
+            nom = match.group(1).strip()
             dose = match.group(2)
             unite = match.group(3)
-            medicaments.append({
-                "nom": nom,
-                "dose": dose,
-                "unite": unite
-            })
+            # Éviter les doublons
+            if not any(m["nom"].lower() == nom.lower() for m in medicaments):
+                medicaments.append({
+                    "nom": nom,
+                    "dose": dose,
+                    "unite": unite
+                })
 
-        # Recherche générique de noms de médicaments courants
+        # Recherche générique de noms de médicaments courants (FR + NL)
+        # Liste dédupliquée et organisée par classe thérapeutique.
+        # Les variantes orthographiques FR/NL sont conservées (ex: paracétamol/paracetamol).
         meds_courants = [
-            "paracétamol", "ibuprofène", "morphine", "fentanyl", "insuline",
-            "amoxicilline", "amoxiciline", "metformine", "oméprazole", 
-            "omeprazole", "paracetamol", "ibuprofen", "diclofénac",
-            "diclofenac", "kétoprofène", "ketoprofene", "spasfon",
-            "diazépam", "diazepam", "midazolam"
+            # Antalgiques / anti-inflammatoires
+            "paracétamol", "paracetamol", "ibuprofène", "ibuprofen",
+            "diclofénac", "diclofenac", "kétoprofène", "ketoprofen",
+            "morphine", "fentanyl", "tramadol", "codeïne", "codeine",
+            "oxycodone", "buprenorphine", "naloxone", "spasfon",
+            # Anxiolytiques / sédatifs
+            "diazépam", "diazepam", "midazolam",
+            # Antibiotiques
+            "amoxicilline", "amoxiciline", "azithromycine",
+            "ciprofloxacine", "levofloxacine", "nitrofurantoïne", "nitrofurantoin",
+            # Anticoagulants / antiagrégants
+            "heparine", "warfarine", "clopidogrel", "aspirine",
+            "enoxaparine", "dalteparine", "rivaroxaban", "apixaban", "dabigatran",
+            # Diabète
+            "insuline", "glargine", "asparte", "lispro",
+            "metformine", "glibenclamide", "glimepiride", "sitagliptine",
+            "empagliflozine", "dapagliflozine",
+            # Gastro-entérologie
+            "oméprazole", "omeprazole", "omeprazol", "pantoprazole", "ranitidine",
+            # Cardio-vasculaire
+            "sildenafil", "tadalafil", "simvastatine", "atorvastatine",
+            "rosuvastatine", "lisinopril", "ramipril", "perindopril",
+            "amlodipine", "bisoprolol", "metoprolol", "atenolol",
+            "furosemide", "spironolactone", "hydrochlorothiazide",
+            # Corticoïdes
+            "prednisolone", "prednisone", "cortisone", "cortison",
         ]
         
         texte_lower = texte.lower()
@@ -815,6 +873,71 @@ class NurseLogEngine:
         lignes.append("=" * 60)
         
         return "\n".join(lignes)
+
+    def generer_rapport_structure(self, patient_data: Dict[str, Any], evaluation: Dict, soins: List[str], alertes: List[str], plan: List[str]) -> Dict[str, Any]:
+        """
+        Génère un rapport directement depuis des champs structurés (mode Manuel).
+        Pas de parsing regex — les données sont déjà structurées.
+        
+        Args:
+            patient_data: {nom, prenom, chambre, date_naissance, numero_dossier, quart, langue, type_rapport}
+            evaluation: Dictionnaire des signes vitaux et évaluations
+            soins: Liste des soins réalisés (déjà en texte)
+            alertes: Liste des alertes
+            plan: Liste des actions du plan
+        
+        Returns:
+            Dictionnaire structuré conforme au template belge
+        """
+        rapport = self._copier_template()
+        
+        # Métadonnées
+        maintenant = datetime.datetime.now()
+        rapport["metadata"]["date"] = maintenant.strftime("%Y-%m-%d")
+        rapport["metadata"]["heure"] = maintenant.strftime("%H:%M")
+        rapport["metadata"]["quart"] = patient_data.get("quart", "")
+        rapport["metadata"]["type_rapport"] = patient_data.get("type_rapport", "Rapport de soins standard")
+        rapport["metadata"]["langue"] = patient_data.get("langue", "Français")
+        
+        # Patient
+        rapport["patient"]["nom"] = patient_data.get("nom", "")
+        rapport["patient"]["prenom"] = patient_data.get("prenom", "")
+        rapport["patient"]["date_naissance"] = patient_data.get("date_naissance", "")
+        rapport["patient"]["chambre"] = patient_data.get("chambre", "")
+        rapport["patient"]["numero_dossier"] = patient_data.get("numero_dossier", "")
+        
+        # Évaluation (déjà structurée)
+        rapport["evaluation"] = evaluation if evaluation else self._evaluation_vide()
+        
+        # Soins, alertes, plan (déjà en liste)
+        rapport["soins"] = soins if soins else []
+        rapport["alertes"] = alertes if alertes else []
+        rapport["plan"] = plan if plan else []
+        
+        # Codes NAA — mapping automatique depuis les soins
+        texte_soins = " ".join(soins).lower() if soins else ""
+        rapport["codes_naa"] = self._mapper_codes_naa(texte_soins)
+        
+        # Médicaments — extraction depuis le texte des soins
+        rapport["medicaments"] = self._extraire_medicaments(" ".join(soins))
+        
+        # Transmission SBAr
+        rapport["transmissions"] = self._generer_transmissions(" ".join(soins), rapport)
+        
+        return rapport
+
+    def _evaluation_vide(self) -> Dict:
+        """Retourne une structure d'évaluation vide."""
+        return {
+            "Signes vitaux": {},
+            "Confort douleur": "",
+            "État général": "",
+            "Nutrition hydratation": "",
+            "Mobilité": "",
+            "Pele muqueuses": "",
+            "Eliminations": "",
+            "État psychologique": "",
+        }
 
     def valider_rapport(self, rapport: Dict) -> tuple[bool, List[str]]:
         """

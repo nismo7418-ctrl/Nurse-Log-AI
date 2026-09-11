@@ -1,0 +1,23 @@
+# Docker — exclusions
+.git
+.gitignore
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+*.db
+.env
+.venv
+venv
+node_modules
+*.egg-info
+dist
+build
+docs
+tests
+.pytest_cache
+.streamlit/config.toml
+Dockerfile
+docker-compose.yml
+*.md
+!README.md

@@ -1,182 +1,137 @@
-# 🩺 NurseLog AI
+# 🏥 NurseLog AI
 
-> **Assistant IA pour la documentation clinique infirmière en Belgique**  
-> *Transcription vocale → Documentation structurée conforme aux standards belges*
+> **Assistant de documentation infirmière par IA — Belgium Edition**
+> Transformez votre dictée naturelle en rapports de soins structurés, conformes aux standards belges (KCE, eHealth, NAA).
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
-[![Status: Alpha](https://img.shields.io/badge/status-alpha-orange.svg)]()
-[![Tests: 32/32](https://img.shields.io/badge/tests-32%2F32%20passed-brightgreen.svg)]()
-
----
-
-## 🎯 Qu'est-ce que NurseLog AI ?
-
-NurseLog AI est une application SaaS qui aide les infirmier·e·s belges à gagner du temps sur la documentation clinique grâce à l'IA.
-
-### 4 modules principaux
-
-| Module | Fonction | Bénéfice |
-|--------|----------|----------|
-| 🎙 **DocuVoice** | Transcription vocale → notes de soin structurées | -70% temps de documentation |
-| 🔄 **TransmiShift** | Transmissions de garde intelligentes (SBAr) | Transmissions claires, complètes |
-| 📋 **FormuCare** | Génération formulaires NAA & plans de soins | Conformité automatique |
-| 📊 **AnalysInsight** | Tableaux de bord indicateurs qualité | Suivi qualité & reporting |
-
-### Public cible
-- Infirmier·e·s libéraux (Bruxelles & Wallonie)
-- Infirmier·e·s à domicile (soins palliatifs, post-op, chroniques)
-- Infirmier·e·s hospitaliers
-- Ambulanciers / SMUR
+[![Python](https://img.shields.io/badge/Python-3.10+-blue)](https://python.org)
+[![Tests](https://img.shields.io/badge/Tests-47%20passing-green)]()
+[![Streamlit](https://img.shields.io/badge/Streamlit-1.30+-orange)](https://streamlit.io)
+[![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
 ---
 
-## 🚀 Installation
+## ✨ Fonctionnalités
 
-### Prérequis
-- **Python 3.10+** ([pyenv](https://github.com/pyenv/pyenv) recommandé)
-- **Git**
+| Fonctionnalité | Description | Statut |
+|---|---|---|
+| 🎙️ **Dictée Rapide** | Texte libre → rapport structuré (regex + mots-clés) | ✅ |
+| 📝 **Rapport Manuel** | Saisie structurée directe, sans parsing regex | ✅ |
+| 📋 **Historique** | Recherche par nom, filtre par date, isolation par infirmier | ✅ |
+| 📥 **Export PDF** | Génération PDF professionnelle (ReportLab) | ✅ |
+| 💾 **Brouillons** | Sauvegarde automatique de la dictée en cours (SQLite) | ✅ |
+| 🎤 **Reconnaissance vocale** | Transcription audio via API Whisper (optionnel) | 🔄 |
+| 📤 **Export SIH/FHIR** | Intégration eHealth Belgique | 🔜 Phase 3 |
+| 🤖 **LLM local** | Whisper + Llama 3 pour extraction avancée | 🔜 Phase 1.5 |
 
-### Étape 1 — Cloner le projet
+---
+
+## 🚀 Démarrage rapide
+
 ```bash
-git clone <repo-url>
-cd NurseLog-AI
-```
+# 1. Cloner le dépôt
+git clone https://github.com/votre-org/Nurse-Log-AI.git
+cd Nurse-Log-AI
 
-### Étape 2 — Environnement virtuel
-```bash
-python -m venv .venv
-source .venv/bin/activate   # Linux/macOS
-.venv\Scripts\activate      # Windows
-```
-
-### Étape 3 — Installer les dépendances
-```bash
+# 2. Installer les dépendances
 pip install -r requirements.txt
-```
 
-### Étape 4 — Configuration
-```bash
-cp .env.example .env
-# Éditer .env avec vos clés API
-```
+# 3. (Optionnel) Configurer la reconnaissance vocale
+#    Définissez OPENAI_API_KEY dans votre environnement
+export OPENAI_API_KEY="sk-..."
 
-### Étape 5 — Lancer l'application
-```bash
+# 4. Lancer l'application
 streamlit run src/app.py
 ```
 
-L'application sera disponible à `http://localhost:8501`.
+L'application est accessible sur `http://localhost:8501`.
 
 ---
 
-## 📁 Structure du projet
+## 🏗️ Architecture
 
 ```
-NurseLog-AI/
-├── src/                       # Code source principal
-│   ├── __init__.py            # Package init
-│   ├── app.py                 # Interface Streamlit (UI)
-│   ├── nurselog_engine.py     # Moteur IA (extraction, NAA, alertes, SBAr)
-│   ├── templates.py           # Templates belges, codes NAA, vocabulaire médical
-│   └── database.py            # Persistance SQLite (rapports, profils)
-├── tests/                     # Tests unitaires
-│   ├── test_engine.py         # Tests moteur + templates
-│   └── test_database.py       # Tests SQLite
-├── docs/                      # Documentation technique
-│   ├── architecture.md
-│   ├── api.md
-│   └── deployment.md
-├── assets/                    # Ressources (images, logos)
-├── .env.example               # Modèle de configuration
-├── .gitignore
-├── requirements.txt           # Dépendances Python
+Nurse-Log-AI/
+├── src/
+│   ├── app.py              # Interface Streamlit (UI + logique métier)
+│   ├── nurselog_engine.py  # Moteur d'extraction (regex + mots-clés)
+│   ├── database.py         # Couche SQLite (rapports, profils, brouillons)
+│   └── templates.py        # Templates belges (KCE, NAA, SBAr)
+├── tests/
+│   ├── test_engine.py      # Tests du moteur (35 tests)
+│   └── test_database.py    # Tests de la couche DB (13 tests)
+├── .streamlit/
+│   └── config.toml         # Configuration Streamlit + thème
+├── pyproject.toml          # Packaging + tooling (ruff, pytest)
+├── requirements.txt        # Dépendances
+├── .env.example            # Template de configuration
 └── README.md
 ```
 
----
+### Moteur d'extraction
 
-## 🔧 Architecture technique
+Le moteur actuel est basé sur **regex et mots-clés** (pas un LLM) :
+- Extraction des signes vitaux (TA, FC, T°, SpO2, EVA, glycémie, FR)
+- Détection des soins réalisés (pansement, injection, perfusion, etc.)
+- Identification des alertes (chute, fièvre, hémorragie, etc.)
+- Mapping automatique des codes NAA belges
+- Génération de transmission SBAr
 
-```
-┌─────────────────────────────────────────────┐
-│  Interface Streamlit (app.py)               │
-│  ├── Formulaires d'entrée                   │
-│  ├── Affichage résultats                    │
-│  └── Validation infirmière                  │
-├─────────────────────────────────────────────┤
-│  Moteur IA (nurselog_engine.py)             │
-│  ├── Extraction texte → données structurées │
-│  ├── Mapping codes NAA                      │
-│  ├── Détection alertes/signes vitaux        │
-│  └── Génération SBAr                        │
-├─────────────────────────────────────────────┤
-│  Templates (templates.py)                   │
-│  ├── Codes NAA belges                       │
-│  ├── Vocabulaire médical FR/NL              │
-│  ├── Échelles d'évaluation (Bristol, etc.)  │
-│  └── Plans de soins standards               │
-└─────────────────────────────────────────────┘
-```
-
-### Stack technique (Phase 1 - Prototype)
-- **Python 3.10+**
-- **Streamlit** — Interface web
-- **SQLite** — Stockage local (persistant)
-- **Regex + NLP** — Extraction de données structurées (moteur actuel)
-- **pytest** — 32 tests unitaires
-
-### Prochaines étapes (Phase 1.5)
-- **Whisper** (OpenAI) — Transcription vocale FR/NL
-- **Llama 3** — Analyse NLP & génération de texte
-- **Export PDF** — Rapport imprimable
-
-### Stack technique (Phase 2 - Production)
-- **FastAPI** — API REST
-- **Supabase** — Base de données cloud
-- **PostgreSQL** — Stockage structuré
-- **Docker** — Conteneurisation
-- **AWS/GCP** — Hébergement
+> ⚠️ **Note** : Ce n'est PAS un LLM. La Phase 1.5 intégrera Whisper (transcription) + LLM local (extraction sémantique avancée).
 
 ---
 
 ## 🧪 Tests
 
 ```bash
+# Tous les tests
 pytest tests/ -v
+
+# Avec couverture
+pytest tests/ --cov=src --cov-report=term-missing
+
+# Un seul fichier
+pytest tests/test_engine.py -v
 ```
 
----
-
-## 📅 Roadmap
-
-| Phase | Période | Objectif |
-|-------|---------|----------|
-| **Phase 0** | Maintenant | ✅ Prototype fonctionnel |
-| **Phase 1** | Mois 1-2 | MVP : DocuVoice + TransmiShift |
-| **Phase 2** | Mois 3-4 | FormuCare + authentification utilisateurs |
-| **Phase 3** | Mois 5-6 | AnalysInsight + intégrations API |
-| **Phase 4** | Mois 7-9 | Lancement commercial + conformité RGPD/HDC |
+**Statut actuel : 47 passed, 1 skipped (ReportLab optionnel)**
 
 ---
 
-## 💰 Financement (Budget €0 → Revenus)
+## 🔒 Confidentialité & RGPD
 
-- **Starter Pack** : 7 000€ (subvention Région Bruxelles-Wallonie)
-- **Bons plans numériques** : 4 500€ (Wallonie)
-- **Incubation** : Space @ulb / UCLouvain Entrepreneurship
-- **Modèle SaaS** : 0€ → 299€/mois selon plan
-
----
-
-## 📄 Licence
-
-MIT — Voir [LICENSE](LICENSE)
+- ✅ **100% local** — Aucune donnée ne quitte la machine
+- ✅ **SQLite** — Base de données locale, pas de serveur
+- ✅ **Minimisation** — Seules les données cliniques nécessaires sont stockées
+- 🔜 **Chiffrement** — Phase 2 (chiffrement au repos)
+- 🔜 **eHealth** — Intégration SumEHR (Phase 3)
 
 ---
 
-## 👩‍⚕️ À propos
+## 📋 Standards belges intégrés
 
-Conçu par et pour des infirmier·e·s belges. Conforme aux standards de la **Fédération Royale Belge des Infirmiers et Infirmières (FRBII)**.
+- **KCE** — Recommandations de documentation infirmière
+- **eHealth** — Format de données de santé
+- **NAA** — Codes de facturation infirmiers belges
+- **SBAr** — Structured Briefing for Assessment and Recommendation
+- **EVA** — Échelle de cotation de la douleur (0-10)
 
-🇧🇪 Made in Belgium for Belgian nurses
+---
+
+## 🗺️ Feuille de route
+
+| Phase | Contenu | Statut |
+|---|---|---|
+| **1.0** | MVP : dictée → rapport structuré, SQLite, PDF | ✅ |
+| **1.5** | Whisper + LLM local, multi-langue FR/NL | 🔄 |
+| **2.0** | Authentification, chiffrement, multi-poste | 🔜 |
+| **3.0** | Intégration eHealth/SumEHR, FHIR/HL7 | 🔜 |
+
+---
+
+## 📄 License
+
+MIT — voir [LICENSE](LICENSE)
+
+---
+
+*NurseLog AI v0.2 — Prototype MVP | Belgium Edition | © 2025*

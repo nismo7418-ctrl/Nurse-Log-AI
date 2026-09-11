@@ -1,10 +1,12 @@
 """
-Configuration pytest pour NurseLog AI
+conftest.py — Configuration pytest pour NurseLog AI
+Assure que src/ est dans le path Python pour tous les tests.
 """
 
 import sys
 import os
 
-# Ajouter le dossier src au PYTHONPATH pour les imports
-src_dir = os.path.join(os.path.dirname(__file__), "..", "src")
-sys.path.insert(0, src_dir)
+# Ajouter le dossier src au path
+src_path = os.path.join(os.path.dirname(__file__), "..", "src")
+if src_path not in sys.path:
+    sys.path.insert(0, src_path)
