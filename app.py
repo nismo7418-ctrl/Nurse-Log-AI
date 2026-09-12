@@ -13,7 +13,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
 import streamlit as st
-from nurselog_engine import NurseLogEngine
+from nurselog_engine import NurseLogEngine, TranscriptionError
 from templates import RAPPORT_TEMPLATE
 from database import (
     sauvegarder_rapport,
@@ -136,17 +136,122 @@ try:
 except ImportError:
     PDF_EXPORT_AVAILABLE = False
 
-# ============ CONFIGURATION RECONNAISSANCE VOCAL ============
-WHISPER_AVAILABLE = False
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
-openai_client = None
-if OPENAI_API_KEY:
-    try:
-        from openai import OpenAI
-        openai_client = OpenAI(api_key=OPENAI_API_KEY)
-        WHISPER_AVAILABLE = True
-    except ImportError:
-        pass
+# ============ CONFIGURATION RECONNAISSANCE VOCALE ============
+# Le moteur gère les backends (API OpenAI / Whisper local) et la validation.
+# L'interface n'affiche que le statut et les préférences utilisateur.
+VOIX_STATUT = NurseLogEngine.statut_transcription()
+
+# Préférences utilisateur (persistées en session)
+if "voix_prefs" not in st.session_state:
+    st.session_state.voix_prefs = {
+        "langue": "Auto",          # Auto / Français / Néerlandais
+        "model": "whisper-1",      # modèle API OpenAI
+        "model_local": "base",     # taille Whisper local (tiny / base / small)
+    }
+# Migration : ajouter la taille de modèle local aux préférences existantes
+if "model_local" not in st.session_state.voix_prefs:
+    st.session_state.voix_prefs["model_local"] = "base"
+
+# ============ MODULE VOIX (dictée rapide) ============
+def _afficher_module_voix(dictee_actuelle: str):
+    """
+    Module de reconnaissance vocale : upload audio, transcription via le
+    moteur (API OpenAI ou Whisper local), aperçu et insertion dans la dictée.
+    """
+    if not VOIX_STATUT["disponible"]:
+        # Aucun backend : afficher un guide d'installation clair
+        if VOIX_STATUT["api_key"] and not VOIX_STATUT["openai_installe"]:
+            st.warning("⚠️ Le package `openai` n'est pas installé. Exécutez : `pip install openai`")
+        elif not VOIX_STATUT["api_key"]:
+            st.info(
+                "🎙️ Reconnaissance vocale inactive. Pour l'activer :\n\n"
+                "- **API OpenAI** : installez `openai` (`pip install openai`) "
+                "et définissez `OPENAI_API_KEY`\n"
+                "- **100% local (RGPD)** : installez `openai-whisper` "
+                "(`pip install openai-whisper`)"
+            )
+        return
+
+    backend = VOIX_STATUT["backend"]
+    if backend == "openai":
+        st.success("🎙️ Transcription via **API OpenAI** (vocabulaire médical activé)")
+    else:
+        st.success("🎙️ Transcription **100% locale** (Whisper) — aucune donnée ne quitte la machine")
+
+    formats = [f".{f}" for f in VOIX_STATUT["formats"]]
+    audio_file = st.file_uploader(
+        "Fichier audio de la dictée",
+        type=VOIX_STATUT["formats"],
+        key="audio_uploader",
+        help=f"Formats acceptés : {', '.join(formats)} — max {VOIX_STATUT['taille_max_mo']} Mo",
+    )
+
+    if audio_file is None:
+        return
+
+    # --- Informations sur le fichier ---
+    taille_mo = audio_file.size / (1024 * 1024)
+    info_col, btn_col = st.columns([3, 1])
+    with info_col:
+        statut_taille = "✅" if taille_mo <= VOIX_STATUT["taille_max_mo"] else "⚠️"
+        st.caption(f"{statut_taille} `{audio_file.name}` — {taille_mo:.2f} Mo (max {VOIX_STATUT['taille_max_mo']} Mo)")
+    with btn_col:
+        lancer = st.button("🎤 Transcrire", type="primary", width="stretch")
+
+    if not lancer:
+        return
+
+    # --- Transcription via le moteur ---
+    with st.spinner("🎧 Transcription en cours..."):
+        try:
+            texte = engine.transcrire_audio(
+                audio_data=audio_file.getvalue(),
+                filename=audio_file.name,
+                langue=st.session_state.voix_prefs["langue"],
+                model=st.session_state.voix_prefs["model"],
+                local_model=st.session_state.voix_prefs.get("model_local", "base"),
+            )
+        except TranscriptionError as e:
+            st.error(f"❌ {e}")
+            return
+        except Exception as e:
+            st.error(f"❌ Erreur inattendue lors de la transcription : {e}")
+            return
+
+    # --- Aperçu de la transcription ---
+    st.session_state.transcription_preview = texte
+    nb_mots = len(texte.split())
+    st.success(f"✅ Transcription terminée ({nb_mots} mots) — vérifiez avant insertion")
+
+    st.text_area(
+        "📄 Aperçu de la transcription",
+        value=texte,
+        height=150,
+        key="transcription_preview_area",
+        label_visibility="collapsed",
+    )
+
+    # Le texte inséré est celui de l'aperçu (modifiable), pas la transcription brute
+    def _texte_final() -> str:
+        return (st.session_state.get("transcription_preview_area") or texte).strip()
+
+    col_remplacer, col_ajouter, col_annuler = st.columns([1, 1, 0.5])
+    with col_remplacer:
+        if st.button("✅ Remplacer la dictée", width="stretch"):
+            st.session_state.dictee_draft = _texte_final()
+            st.session_state.transcription_preview = None
+            st.rerun()
+    with col_ajouter:
+        if st.button("➕ Ajouter à la dictée", width="stretch"):
+            base = dictee_actuelle.strip()
+            st.session_state.dictee_draft = f"{base} {_texte_final()}".strip()
+            st.session_state.transcription_preview = None
+            st.rerun()
+    with col_annuler:
+        if st.button("✖️", help="Annuler l'aperçu", width="stretch"):
+            st.session_state.transcription_preview = None
+            st.rerun()
+
 
 # ============ SIDEBAR ============
 with st.sidebar:
@@ -181,6 +286,15 @@ with st.sidebar:
         st.success(f"👤 Infirmier·e #{st.session_state.infirmier_id} connecté·e")
     else:
         st.info("👤 Non connecté — voir ⚙️ Paramètres")
+
+    # Statut reconnaissance vocale
+    st.divider()
+    if VOIX_STATUT["backend"] == "openai":
+        st.caption("🎙️ Voix : API OpenAI ✅")
+    elif VOIX_STATUT["backend"] == "local":
+        st.caption("🎙️ Voix : Whisper local ✅")
+    else:
+        st.caption("🎙️ Voix : inactive")
 
 # ============ PAGE: DICTÉE RAPIDE ============
 if page == "🎙️ Dictée Rapide":
@@ -229,38 +343,7 @@ if page == "🎙️ Dictée Rapide":
         
         # Option pour l'enregistrement vocal
         st.markdown("### 🎙️ Enregistrement vocal")
-        if WHISPER_AVAILABLE:
-            st.info("Téléchargez un fichier audio (.mp3, .wav) pour la transcription automatique.")
-            audio_file = st.file_uploader("Télécharger un fichier audio", type=["mp3", "wav"], key="audio_uploader")
-            
-            if audio_file is not None:
-                with st.spinner("Transcription en cours..."):
-                    try:
-                        import tempfile
-                        audio_data = audio_file.read()
-                        suffix = os.path.splitext(audio_file.name)[1] or ".wav"
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
-                            tmp_file.write(audio_data)
-                            tmp_file_path = tmp_file.name
-                        
-                        # OpenAI SDK v1.x — client-based API
-                        response = openai_client.audio.transcribe(
-                            model="whisper-1",
-                            file=open(tmp_file_path, "rb"),
-                            response_format="text"
-                        )
-                        
-                        os.unlink(tmp_file_path)
-                        st.session_state.dictee_draft = response
-                        st.success("✅ Transcription terminée !")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Erreur lors de la transcription : {e}")
-        else:
-            if OPENAI_API_KEY:
-                st.warning("⚠️ Le module `openai` n'est pas installé. Exécutez : `pip install openai`")
-            else:
-                st.info("🎙️ Reconnaissance vocale : définissez `OPENAI_API_KEY` dans votre environnement pour activer la transcription.")
+        _afficher_module_voix(dictée)
         
         st.markdown("### 🎯 Type de rapport")
         type_rapport = st.selectbox(
@@ -630,6 +713,68 @@ elif page == "⚙️ Paramètres":
         st.info("📍 Aucun envoi vers des serveurs externes")
         st.info("📍 Conçu pour une future conformité RGPD/AI Act")
         
+        st.markdown("### 🎙️ Reconnaissance vocale")
+        _statut = VOIX_STATUT
+        if _statut["backend"] == "openai":
+            st.success("✅ Backend actif : **API OpenAI**")
+        elif _statut["backend"] == "local":
+            st.success("✅ Backend actif : **Whisper local** (100% RGPD)")
+        else:
+            st.warning("⚠️ Aucun backend actif")
+            if _statut["api_key"] and not _statut["openai_installe"]:
+                st.caption("→ Installez le package : `pip install openai`")
+            elif not _statut["api_key"]:
+                st.caption("→ Définissez `OPENAI_API_KEY` ou installez `openai-whisper` (local)")
+
+        prefs = st.session_state.voix_prefs
+        col_l, col_m = st.columns(2)
+        with col_l:
+            nouvelle_langue = st.selectbox(
+                "Langue de dictée",
+                ["Auto", "Français", "Néerlandais"],
+                index=["Auto", "Français", "Néerlandais"].index(prefs["langue"]),
+                key="voix_langue",
+                help="Indice de langue transmis à Whisper pour une meilleure précision",
+            )
+        with col_m:
+            if _statut["backend"] == "openai":
+                nouveau_model = st.selectbox(
+                    "Modèle de transcription",
+                    list(_statut["modeles"]),
+                    index=_statut["modeles"].index(prefs["model"]) if prefs["model"] in _statut["modeles"] else 0,
+                    key="voix_model",
+                    help="gpt-4o-transcribe est le plus précis ; whisper-1 le plus rapide",
+                )
+                nouveau_model_local = prefs.get("model_local", "base")
+                st.caption(f"Repli local (si API indisponible) : `{nouveau_model_local}`")
+            else:
+                nouveau_model = prefs["model"]
+                nouveau_model_local = st.selectbox(
+                    "Taille du modèle local",
+                    list(_statut["modeles_locaux"]),
+                    index=_statut["modeles_locaux"].index(prefs.get("model_local", "base"))
+                    if prefs.get("model_local") in _statut["modeles_locaux"] else 1,
+                    key="voix_model_local",
+                    help=(
+                        "tiny : le plus rapide (~39 Mo) — base : équilibré (~142 Mo) — "
+                        "small : le plus précis (~466 Mo). "
+                        "Chargé une seule fois, puis mis en cache."
+                    ),
+                )
+
+        if (
+            nouvelle_langue != prefs["langue"]
+            or nouveau_model != prefs["model"]
+            or nouveau_model_local != prefs.get("model_local", "base")
+        ):
+            if st.button("💾 Enregistrer les préférences vocales"):
+                st.session_state.voix_prefs = {
+                    "langue": nouvelle_langue,
+                    "model": nouveau_model,
+                    "model_local": nouveau_model_local,
+                }
+                st.success("✅ Préférences vocales enregistrées")
+
         st.markdown("### 📊 Intégrations")
         st.markdown('<span class="badge-bientot">🔧 Intégration eHealth/SumEHR — Bientôt disponible</span>', unsafe_allow_html=True)
         st.markdown('<span class="badge-bientot">🔧 Export FHIR/HL7 — Bientôt disponible</span>', unsafe_allow_html=True)

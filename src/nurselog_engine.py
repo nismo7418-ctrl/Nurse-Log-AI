@@ -14,9 +14,11 @@ En production : remplacement par LLM (Llama 3, Mistral, ou Claude)
 avec RAG sur la terminologie médicale belge.
 """
 
+import os
 import re
 import datetime
 import json
+import tempfile
 from typing import Dict, List, Optional, Any
 
 from templates import (
@@ -27,6 +29,15 @@ from templates import (
     ECHELLES_EVALUATION,
     STRUCTURE_SBAr
 )
+
+
+class TranscriptionError(Exception):
+    """
+    Erreur lors de la transcription vocale.
+
+    Le message est toujours actionnable pour l'utilisateur
+    (fichier invalide, backend manquant, clé API, ...).
+    """
 
 
 class NurseLogEngine:
@@ -462,13 +473,411 @@ class NurseLogEngine:
                     phrases.append(segment)
         return phrases
 
-    def transcrire_audio(self, audio_path: str) -> str:
+    # ========================================================================
+    # RECONNAISSANCE VOCALE (Whisper API / Whisper local)
+    # ========================================================================
+
+    # Formats audio acceptés par l'API OpenAI Whisper
+    FORMATS_AUDIO_SUPPORTES = ("mp3", "mp4", "mpeg", "mpga", "m4a", "wav", "webm", "ogg", "flac")
+
+    # Limite de taille des fichiers audio (OpenAI : 25 Mo)
+    TAILLE_MAX_AUDIO_MO = 25
+
+    # Modèles de transcription disponibles (API OpenAI)
+    MODELES_TRANSCRIPTION = (
+        "whisper-1",
+        "gpt-4o-mini-transcribe",
+        "gpt-4o-transcribe",
+    )
+
+    # Tailles de modèles Whisper local (openai-whisper)
+    # tiny : le plus rapide (~39 Mo) — base : équilibré (~142 Mo) — small : le plus précis (~466 Mo)
+    MODELES_LOCAUX = ("tiny", "base", "small")
+
+    # Cache des modèles Whisper locaux chargés (évite de recharger à chaque transcription)
+    _whisper_cache: Dict[str, Any] = {}
+
+    # Médicaments courants en soins infirmiers (FR + NL), par classe thérapeutique,
+    # les plus fréquents en premier. Utilisé à la fois pour le priming de la
+    # transcription (initial_prompt) et l'extraction de médicaments dans le texte.
+    MEDICAMENTS_COURANTS = (
+        # Antalgiques / anti-inflammatoires
+        "paracétamol", "paracetamol", "ibuprofène", "ibuprofen",
+        "diclofénac", "diclofenac", "kétoprofène", "ketoprofen",
+        "morphine", "fentanyl", "tramadol", "codeïne", "codeine",
+        "oxycodone", "buprenorphine", "naloxone", "spasfon",
+        # Anxiolytiques / sédatifs
+        "diazépam", "diazepam", "midazolam",
+        # Antibiotiques
+        "amoxicilline", "amoxiciline", "azithromycine",
+        "ciprofloxacine", "levofloxacine", "nitrofurantoïne", "nitrofurantoin",
+        # Anticoagulants / antiagrégants
+        "heparine", "warfarine", "clopidogrel", "aspirine",
+        "enoxaparine", "dalteparine", "rivaroxaban", "apixaban", "dabigatran",
+        # Diabète
+        "insuline", "glargine", "asparte", "lispro",
+        "metformine", "glibenclamide", "glimepiride", "sitagliptine",
+        "empagliflozine", "dapagliflozine",
+        # Gastro-entérologie
+        "oméprazole", "omeprazole", "omeprazol", "pantoprazole", "ranitidine",
+        # Cardio-vasculaire
+        "sildenafil", "tadalafil", "simvastatine", "atorvastatine",
+        "rosuvastatine", "lisinopril", "ramipril", "perindopril",
+        "amlodipine", "bisoprolol", "metoprolol", "atenolol",
+        "furosemide", "spironolactone", "hydrochlorothiazide",
+        # Corticoïdes
+        "prednisolone", "prednisone", "cortisone", "cortison",
+    )
+
+    def transcrire_audio(
+        self,
+        audio_data: bytes,
+        filename: str = "audio.wav",
+        langue: Optional[str] = None,
+        model: str = "whisper-1",
+        local_model: str = "base",
+        api_key: Optional[str] = None,
+        client: Optional[Any] = None,
+        timeout: int = 120,
+    ) -> str:
         """
-        Méthode pour simuler la transcription vocale.
-        En production, cela appellerait l'API Whisper.
+        Transcrit un fichier audio en texte (dictée de soins).
+
+        Deux backends, dans cet ordre :
+          1. **API OpenAI Whisper** — si `api_key` est fournie et le package
+             `openai` est installé. Bénéficie de l'indice de langue et du
+             priming de vocabulaire médical (`initial_prompt`) pour une
+             meilleure précision sur les termes cliniques.
+          2. **Whisper local** (package `openai-whisper`) — 100% local,
+             aucune donnée ne quitte la machine (conforme au principe
+             local-first / RGPD du projet).
+
+        Args:
+            audio_data: Contenu binaire du fichier audio.
+            filename: Nom du fichier (sert à détecter le format).
+            langue: "fr", "nl" ou None pour détection automatique.
+            model: Modèle de transcription (API OpenAI uniquement).
+            local_model: Taille du modèle Whisper local ("tiny", "base", "small").
+            api_key: Clé API OpenAI (sinon : os.environ["OPENAI_API_KEY"]).
+            client: Client OpenAI injectable (principalement pour les tests).
+            timeout: Timeout de l'appel API en secondes.
+
+        Returns:
+            Le texte transcrit.
+
+        Raises:
+            TranscriptionError: Si le fichier est invalide, trop volumineux,
+                ou si aucun backend de transcription n'est disponible.
         """
-        # Pour le prototype, on retourne un message de simulation
-        return "Transcription simulée du fichier audio"
+        # --- Validation du fichier -----------------------------------------
+        ext = os.path.splitext(filename)[1].lstrip(".").lower()
+        if ext not in self.FORMATS_AUDIO_SUPPORTES:
+            formats = ", ".join(f".{f}" for f in self.FORMATS_AUDIO_SUPPORTES)
+            raise TranscriptionError(
+                f"Format audio non supporté : .{ext or 'inconnu'}. "
+                f"Formats acceptés : {formats}"
+            )
+
+        taille_mo = len(audio_data) / (1024 * 1024)
+        if taille_mo > self.TAILLE_MAX_AUDIO_MO:
+            raise TranscriptionError(
+                f"Fichier audio trop volumineux ({taille_mo:.1f} Mo). "
+                f"Limite : {self.TAILLE_MAX_AUDIO_MO} Mo. "
+                "Découpez l'enregistrement en plusieurs segments."
+            )
+
+        if not audio_data:
+            raise TranscriptionError("Fichier audio vide.")
+
+        if model not in self.MODELES_TRANSCRIPTION:
+            raise TranscriptionError(
+                f"Modèle de transcription inconnu : {model}. "
+                f"Modèles disponibles : {', '.join(self.MODELES_TRANSCRIPTION)}"
+            )
+
+        if local_model not in self.MODELES_LOCAUX:
+            raise TranscriptionError(
+                f"Modèle local inconnu : {local_model}. "
+                f"Tailles disponibles : {', '.join(self.MODELES_LOCAUX)}"
+            )
+
+        langue_code = self._normaliser_langue(langue)
+
+        # --- Backend 1 : API OpenAI Whisper ---------------------------------
+        api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
+        if api_key:
+            if client is None:
+                try:
+                    from openai import OpenAI
+                except ImportError:
+                    client = None
+                else:
+                    client = OpenAI(api_key=api_key, timeout=timeout)
+            if client is not None:
+                return self._transcrire_openai(
+                    client=client,
+                    audio_data=audio_data,
+                    filename=filename,
+                    langue=langue_code,
+                    model=model,
+                )
+
+        # --- Backend 2 : Whisper local (openai-whisper) ----------------------
+        try:
+            import whisper  # noqa: F401
+        except ImportError:
+            pass
+        else:
+            return self._transcrire_local(
+                audio_data=audio_data,
+                filename=filename,
+                langue=langue_code,
+                local_model=local_model,
+            )
+
+        # --- Aucun backend disponible ----------------------------------------
+        raise TranscriptionError(
+            "Aucun backend de transcription disponible.\n"
+            "Option 1 (API) : installez le package `openai` "
+            "(`pip install openai`) et définissez OPENAI_API_KEY.\n"
+            "Option 2 (local, 100% RGPD) : installez `openai-whisper` "
+            "(`pip install openai-whisper`)."
+        )
+
+    @staticmethod
+    def _normaliser_langue(langue: Optional[str]) -> Optional[str]:
+        """Convertit une langue affichable en code ISO pour Whisper."""
+        if not langue:
+            return None
+        mapping = {
+            "fr": "fr", "français": "fr", "francais": "fr",
+            "nl": "nl", "néerlandais": "nl", "nederlands": "nl",
+        }
+        return mapping.get(langue.lower())
+
+    @staticmethod
+    def _construire_prompt_medical() -> str:
+        """
+        Construit un `initial_prompt` de priming avec le vocabulaire médical
+        FR/NL du projet. Whisper utilise ce contexte pour mieux reconnaître
+        les termes cliniques (SpO2, EVA, paracétamol, bloeddruk, ...).
+
+        L'ordre est volontairement prioritaire (le prompt est tronqué) :
+          1. Signes vitaux — abréviations (TA, FC, SpO2, EVA) les plus
+             sensibles à la méreconnaissance ;
+          2. Médicaments courants — noms propres souvent mal orthographiés ;
+          3. Soins courants, alertes, états généraux — vocabulaire de base.
+        """
+        termes: List[str] = []
+
+        def _ajouter_categorie(categorie: str) -> None:
+            for valeurs in VOCABULAIRE.get(categorie, {}).values():
+                termes.extend(valeurs)
+
+        _ajouter_categorie("signes_vitaux")
+        # Médicaments courants (FR + NL) — placés juste après les signes vitaux
+        # pour maximiser leur présence dans le prompt tronqué.
+        termes.extend(NurseLogEngine.MEDICAMENTS_COURANTS)
+        for categorie in ("soins_courants", "alertes", "etats_generaux"):
+            _ajouter_categorie(categorie)
+        # Dédupliquer en préservant l'ordre
+        vus = set()
+        uniques = []
+        for t in termes:
+            cle = t.lower()
+            if cle not in vus:
+                vus.add(cle)
+                uniques.append(t)
+        # Prompt volontairement compact : au-delà, l'effet de priming diminue
+        prompt = ", ".join(uniques)
+        return prompt[:650]
+
+    def _transcrire_openai(
+        self,
+        client: Any,
+        audio_data: bytes,
+        filename: str,
+        langue: Optional[str],
+        model: str,
+    ) -> str:
+        """Transcription via l'API OpenAI Whisper."""
+        suffix = os.path.splitext(filename)[1] or ".wav"
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                tmp.write(audio_data)
+                tmp_path = tmp.name
+
+            kwargs: Dict[str, Any] = {
+                "model": model,
+                "file": open(tmp_path, "rb"),
+                "response_format": "text",
+            }
+            if langue:
+                kwargs["language"] = langue
+            # Priming du vocabulaire médical pour une meilleure précision
+            prompt_medical = self._construire_prompt_medical()
+            if prompt_medical:
+                kwargs["initial_prompt"] = prompt_medical
+
+            response = client.audio.transcribe(**kwargs)
+            texte = (response or "").strip()
+            if not texte:
+                raise TranscriptionError(
+                    "La transcription est vide. Vérifiez que l'enregistrement "
+                    "contient bien de la parole."
+                )
+            return texte
+        except TranscriptionError:
+            raise
+        except Exception as e:
+            raise TranscriptionError(self._traduire_erreur_openai(e)) from e
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+
+    @staticmethod
+    def _traduire_erreur_openai(e: Exception) -> str:
+        """Transforme les erreurs brutes de l'API en messages actionnables."""
+        msg = str(e).lower()
+        if "invalid api key" in msg or "unauthorized" in msg or "401" in msg:
+            return (
+                "Clé API OpenAI invalide ou expirée. "
+                "Vérifiez OPENAI_API_KEY dans votre environnement."
+            )
+        if "rate limit" in msg or "429" in msg:
+            return (
+                "Limite de requêtes atteinte (rate limit). "
+                "Réessayez dans quelques minutes."
+            )
+        if "file" in msg and ("large" in msg or "size" in msg):
+            return (
+                f"Fichier audio trop volumineux (limite : "
+                f"{NurseLogEngine.TAILLE_MAX_AUDIO_MO} Mo)."
+            )
+        if "no speech" in msg or "could not find any speech" in msg:
+            return "Aucune parole détectée dans l'enregistrement."
+        if "timeout" in msg or "timed out" in msg:
+            return (
+                "Délai d'attente dépassé lors de la transcription. "
+                "Réessayez avec un enregistrement plus court."
+            )
+        return f"Erreur lors de la transcription : {e}"
+
+    def _transcrire_local(
+        self,
+        audio_data: bytes,
+        filename: str,
+        langue: Optional[str],
+        local_model: str = "base",
+    ) -> str:
+        """Transcription 100% locale via le package openai-whisper.
+
+        Le modèle est chargé une seule fois puis mis en cache (clé : taille),
+        ce qui accélère fortement les transcriptions suivantes.
+        """
+        import whisper
+
+        suffix = os.path.splitext(filename)[1] or ".wav"
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                tmp.write(audio_data)
+                tmp_path = tmp.name
+
+            kwargs: Dict[str, Any] = {"fp16": False}
+            if langue:
+                kwargs["language"] = langue
+            # Priming du vocabulaire médical (identique au backend API)
+            prompt_medical = self._construire_prompt_medical()
+            if prompt_medical:
+                kwargs["initial_prompt"] = prompt_medical
+
+            model = self._charger_modele_local(whisper, local_model)
+            result = model.transcribe(tmp_path, **kwargs)
+            texte = (result.get("text") or "").strip()
+            if not texte:
+                raise TranscriptionError(
+                    "La transcription est vide. Vérifiez que l'enregistrement "
+                    "contient bien de la parole."
+                )
+            return texte
+        except TranscriptionError:
+            raise
+        except Exception as e:
+            raise TranscriptionError(
+                f"Erreur lors de la transcription locale : {e}"
+            ) from e
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+
+    @staticmethod
+    def _charger_modele_local(whisper: Any, local_model: str) -> Any:
+        """Charge (une seule fois) le modèle Whisper local demandé, avec cache.
+
+        Si le modèle demandé n'est pas disponible (téléchargement impossible),
+        on retombe sur "tiny" (le plus léger).
+        """
+        if local_model in NurseLogEngine._whisper_cache:
+            return NurseLogEngine._whisper_cache[local_model]
+        try:
+            modele = whisper.load_model(local_model)
+        except Exception:
+            if local_model == "tiny":
+                raise
+            # Modèle indisponible : repli sur la taille la plus légère
+            modele = whisper.load_model("tiny")
+            NurseLogEngine._whisper_cache["tiny"] = modele
+            return modele
+        NurseLogEngine._whisper_cache[local_model] = modele
+        return modele
+
+    @classmethod
+    def statut_transcription(cls) -> Dict[str, Any]:
+        """
+        État des backends de transcription disponibles.
+        Utilisé par l'interface pour afficher le statut et guider l'utilisateur.
+        """
+        api_key = os.environ.get("OPENAI_API_KEY", "")
+        openai_ok = False
+        try:
+            import openai  # noqa: F401
+            openai_ok = True
+        except ImportError:
+            pass
+
+        whisper_local_ok = False
+        try:
+            import whisper  # noqa: F401
+            whisper_local_ok = True
+        except ImportError:
+            pass
+
+        if api_key and openai_ok:
+            backend = "openai"
+        elif whisper_local_ok:
+            backend = "local"
+        else:
+            backend = None
+
+        return {
+            "disponible": backend is not None,
+            "backend": backend,
+            "api_key": bool(api_key),
+            "openai_installe": openai_ok,
+            "whisper_local_installe": whisper_local_ok,
+            "modeles": list(cls.MODELES_TRANSCRIPTION),
+            "modeles_locaux": list(cls.MODELES_LOCAUX),
+            "formats": list(cls.FORMATS_AUDIO_SUPPORTES),
+            "taille_max_mo": cls.TAILLE_MAX_AUDIO_MO,
+        }
 
     # ========================================================================
     # EXTRACTION DES ALERTES
@@ -695,37 +1104,10 @@ class NurseLogEngine:
                     "unite": unite
                 })
 
-        # Recherche générique de noms de médicaments courants (FR + NL)
-        # Liste dédupliquée et organisée par classe thérapeutique.
-        # Les variantes orthographiques FR/NL sont conservées (ex: paracétamol/paracetamol).
-        meds_courants = [
-            # Antalgiques / anti-inflammatoires
-            "paracétamol", "paracetamol", "ibuprofène", "ibuprofen",
-            "diclofénac", "diclofenac", "kétoprofène", "ketoprofen",
-            "morphine", "fentanyl", "tramadol", "codeïne", "codeine",
-            "oxycodone", "buprenorphine", "naloxone", "spasfon",
-            # Anxiolytiques / sédatifs
-            "diazépam", "diazepam", "midazolam",
-            # Antibiotiques
-            "amoxicilline", "amoxiciline", "azithromycine",
-            "ciprofloxacine", "levofloxacine", "nitrofurantoïne", "nitrofurantoin",
-            # Anticoagulants / antiagrégants
-            "heparine", "warfarine", "clopidogrel", "aspirine",
-            "enoxaparine", "dalteparine", "rivaroxaban", "apixaban", "dabigatran",
-            # Diabète
-            "insuline", "glargine", "asparte", "lispro",
-            "metformine", "glibenclamide", "glimepiride", "sitagliptine",
-            "empagliflozine", "dapagliflozine",
-            # Gastro-entérologie
-            "oméprazole", "omeprazole", "omeprazol", "pantoprazole", "ranitidine",
-            # Cardio-vasculaire
-            "sildenafil", "tadalafil", "simvastatine", "atorvastatine",
-            "rosuvastatine", "lisinopril", "ramipril", "perindopril",
-            "amlodipine", "bisoprolol", "metoprolol", "atenolol",
-            "furosemide", "spironolactone", "hydrochlorothiazide",
-            # Corticoïdes
-            "prednisolone", "prednisone", "cortisone", "cortison",
-        ]
+        # Recherche générique de noms de médicaments courants (FR + NL).
+        # Liste partagée avec le priming de la transcription (MEDICAMENTS_COURANTS),
+        # organisée par classe thérapeutique, variantes orthographiques FR/NL incluses.
+        meds_courants = list(self.MEDICAMENTS_COURANTS)
         
         texte_lower = texte.lower()
         for med in meds_courants:

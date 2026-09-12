@@ -68,7 +68,7 @@ NurseLog AI suit une architecture en 3 couches :
 
 **Algorithmes** :
 - Extraction par regex + NLP (phase 1)
-- Whisper API pour transcription vocale (phase 1)
+- Whisper (API OpenAI ou local 100% RGPD) pour transcription vocale (phase 1)
 - Llama 3 pour génération de texte (phase 1)
 - Fine-tuning modèles médicaux (phase 3)
 

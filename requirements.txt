@@ -12,11 +12,10 @@ requests>=2.31.0
 pydantic>=2.5.0
 
 # Pour reconnaissance vocale (production)
+# Option A : API OpenAI Whisper (nécessite OPENAI_API_KEY, audio envoyé à OpenAI)
 openai>=1.10.0
-# ou whisper (open-source)
-
-# Pour export PDF (Phase 1.5)
-reportlab>=4.0.0
+# Option B : Whisper local 100% RGPD (aucune clé, aucune donnée envoyée)
+# openai-whisper>=20231117
 
 # Développement & tests
 pytest>=7.4.0

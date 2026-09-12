@@ -4,7 +4,7 @@
 > Transformez votre dictée naturelle en rapports de soins structurés, conformes aux standards belges (KCE, eHealth, NAA).
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue)](https://python.org)
-[![Tests](https://img.shields.io/badge/Tests-47%20passing-green)]()
+[![Tests](https://img.shields.io/badge/Tests-82%20passing-green)]()
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.30+-orange)](https://streamlit.io)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
@@ -19,9 +19,9 @@
 | 📋 **Historique** | Recherche par nom, filtre par date, isolation par infirmier | ✅ |
 | 📥 **Export PDF** | Génération PDF professionnelle (ReportLab) | ✅ |
 | 💾 **Brouillons** | Sauvegarde automatique de la dictée en cours (SQLite) | ✅ |
-| 🎤 **Reconnaissance vocale** | Transcription audio via API Whisper (optionnel) | ✅ |
+| 🎤 **Reconnaissance vocale** | Transcription audio (API OpenAI **ou** Whisper local 100% RGPD), indice de langue FR/NL, vocabulaire médical, aperçu avant insertion | ✅ |
 | 📤 **Export SIH/FHIR** | Intégration eHealth Belgique | 🔜 Phase 3 |
-| 🤖 **LLM local** | Whisper + Llama 3 pour extraction avancée | ✅ (Phase 1.5 terminée) |
+| 🤖 **LLM local** | Llama 3 pour extraction sémantique avancée | 🔜 Phase 1.5 (à venir) |
 | 📊 **Tableau de bord** | Statistiques et métriques détaillées par infirmier | ✅ |
 | 📥 **Export CSV** | Export complet des rapports en format CSV | ✅ |
 | 📱 **Adaptation mobile** | Interface responsive pour tablette/mobile | ✅ |
@@ -40,11 +40,13 @@ cd Nurse-Log-AI
 pip install -r requirements.txt
 
 # 3. (Optionnel) Configurer la reconnaissance vocale
-#    Définissez OPENAI_API_KEY dans votre environnement
+#    Option A — API OpenAI (les fichiers audio sont envoyés à OpenAI) :
 export OPENAI_API_KEY="sk-..."
+#    Option B — Whisper local 100% RGPD (aucune clé, aucune donnée envoyée) :
+pip install openai-whisper
 
 # 4. Lancer l'application
-streamlit run src/app.py
+streamlit run app.py
 ```
 
 L'application est accessible sur `http://localhost:8501`.
@@ -57,10 +59,10 @@ L'application est accessible sur `http://localhost:8501`.
 
 ```
 NurseLog AI/
+├── app.py               # Interface utilisateur Streamlit
 ├── src/                 # Code source principal
-│   ├── app.py           # Interface utilisateur Streamlit
 │   ├── database.py      # Gestion SQLite
-│   ├── nurselog_engine.py # Moteur d'IA
+│   ├── nurselog_engine.py # Moteur d'IA (extraction + transcription)
 │   └── templates.py     # Templates et vocabulaire
 ├── tests/               # Tests unitaires
 ├── assets/              # Ressources (logos, images)
@@ -90,14 +92,15 @@ NurseLog AI/
 
 ```
 Nurse-Log-AI/
+├── app.py                  # Interface Streamlit (UI + logique métier)
 ├── src/
-│   ├── app.py              # Interface Streamlit (UI + logique métier)
-│   ├── nurselog_engine.py  # Moteur d'extraction (regex + mots-clés)
+│   ├── nurselog_engine.py  # Moteur d'extraction (regex + mots-clés) et transcription
 │   ├── database.py         # Couche SQLite (rapports, profils, brouillons)
 │   └── templates.py        # Templates belges (KCE, NAA, SBAr)
 ├── tests/
-│   ├── test_engine.py      # Tests du moteur (35 tests)
-│   └── test_database.py    # Tests de la couche DB (13 tests)
+│   ├── test_engine.py      # Tests du moteur (67 tests)
+│   ├── test_database.py    # Tests de la couche DB (12 tests)
+│   └── test_nl_support.py  # Tests du support néerlandais (4 tests)
 ├── .streamlit/
 │   └── config.toml         # Configuration Streamlit + thème
 ├── pyproject.toml          # Packaging + tooling (ruff, pytest)
@@ -115,7 +118,7 @@ Le moteur actuel est basé sur **regex et mots-clés** (pas un LLM) :
 - Mapping automatique des codes NAA belges
 - Génération de transmission SBAr
 
-> ⚠️ **Note** : Ce n'est PAS un LLM. La Phase 1.5 intégrera Whisper (transcription) + LLM local (extraction sémantique avancée).
+> ⚠️ **Note** : Ce n'est PAS un LLM. La transcription Whisper (API ou 100% locale) est déjà intégrée ; l'extraction sémantique avancée par LLM local reste à venir (Phase 1.5).
 
 ---
 
@@ -132,7 +135,7 @@ pytest tests/ --cov=src --cov-report=term-missing
 pytest tests/test_engine.py -v
 ```
 
-**Statut actuel : 47 passed, 1 skipped (ReportLab optionnel)**
+**Statut actuel : 82 passed, 1 skipped (ReportLab optionnel)**
 
 ---
 

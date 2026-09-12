@@ -7,6 +7,13 @@
 - ✅ Gestion des fichiers audio avec temporisation pour l'API
 - ✅ Intégration dans le workflow de dictée rapide
 
+> **Mise à jour (rework de la partie vocale)** : la logique de transcription a été déplacée dans le moteur (`src/nurselog_engine.py` → `transcrire_audio()`).
+> - Deux backends : API OpenAI Whisper, puis **Whisper local** (`openai-whisper`) en fallback 100% RGPD
+> - Indice de langue (FR/NL/auto) + priming du vocabulaire médical via `initial_prompt`
+> - Choix du modèle (`whisper-1`, `gpt-4o-mini-transcribe`, `gpt-4o-transcribe`) dans Paramètres
+> - Validation (formats, taille max 25 Mo), erreurs amies (`TranscriptionError`), nettoyage des fichiers temporaires
+> - Flux UI : upload → aperçu de la transcription (nombre de mots) → « Remplacer » / « Ajouter » à la dictée
+
 ### 2. Export PDF complet
 - ✅ Ajout de ReportLab comme dépendance (requirements.txt)
 - ✅ Implémentation complète de la génération PDF avec mise en page professionnelle

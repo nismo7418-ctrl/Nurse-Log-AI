@@ -9,7 +9,7 @@ import pytest
 # Ajouter le dossier parent au chemin pour importer src
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from src.nurselog_engine import NurseLogEngine
+from src.nurselog_engine import NurseLogEngine, TranscriptionError
 from src.templates import (
     CODES_NAA_RECONNAISSANCE,
     ECHELLES_EVALUATION,
@@ -258,11 +258,14 @@ class TestExport:
         assert "Dupont" in texte
         assert "Jean" in texte
 
-    def test_transcription_audio(self):
-        """Test de la méthode de transcription audio"""
-        # Test avec une dictée normale (pas vraiment audio)
-        result = self.engine.transcrire_audio("test.wav")
-        assert result == "Transcription simulée du fichier audio"
+    def test_transcription_audio(self, monkeypatch):
+        """La transcription audio sans backend lève une erreur claire"""
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.setitem(sys.modules, "whisper", None)
+        with pytest.raises(TranscriptionError):
+            self.engine.transcrire_audio(
+                b"fake-audio-data", filename="test.wav", api_key=""
+            )
 
     def test_voice_recognition_error_handling(self):
         """Test de la gestion des erreurs dans la reconnaissance vocale"""
@@ -380,6 +383,430 @@ class TestRapportStructure:
         patient = {"nom": "Test", "prenom": "Test", "numero_dossier": "D-2025-1111"}
         rapport = self.engine.generer_rapport_structure(patient, {}, ["Soins"], [], [])
         assert rapport["patient"]["numero_dossier"] == "D-2025-1111"
+
+
+class TestTranscriptionAudio:
+    """Tests de la transcription vocale (API OpenAI / Whisper local)"""
+
+    def setup_method(self):
+        self.engine = NurseLogEngine()
+        # Isoler le cache des modèles locaux entre les tests
+        NurseLogEngine._whisper_cache.clear()
+
+    # --- Helpers de mock ---
+
+    @staticmethod
+    def _mock_openai_client(response="Transcription test"):
+        """Client OpenAI factice capturant les appels de transcribe()."""
+        class MockAudio:
+            def __init__(self):
+                self.calls = []
+            def transcribe(self, **kwargs):
+                self.calls.append(kwargs)
+                return response
+
+        class MockClient:
+            pass
+
+        client = MockClient()
+        client.audio = MockAudio()
+        return client
+
+    @staticmethod
+    def _mock_whisper(monkeypatch, text="Transcription 100% locale"):
+        """Module openai-whisper factice."""
+        class MockModel:
+            def transcribe(self, path, **kwargs):
+                return {"text": text}
+
+        class MockWhisper:
+            def load_model(self, name):
+                return MockModel()
+
+        monkeypatch.setitem(sys.modules, "whisper", MockWhisper())
+
+    # --- Backend API OpenAI ---
+
+    def test_openai_transcription_ok(self):
+        """Transcription via API : le texte est retourné"""
+        client = self._mock_openai_client("Pansement réalisé, douleur 2/10")
+        result = self.engine.transcrire_audio(
+            b"fake-audio", filename="dictee.wav",
+            api_key="fake-key", client=client,
+        )
+        assert result == "Pansement réalisé, douleur 2/10"
+        assert len(client.audio.calls) == 1
+
+    def test_openai_parametres_appels(self):
+        """L'appel API reçoit le modèle et le format de réponse attendus"""
+        client = self._mock_openai_client("ok")
+        self.engine.transcrire_audio(
+            b"fake-audio", filename="dictee.wav",
+            api_key="fake-key", client=client,
+        )
+        call = client.audio.calls[0]
+        assert call["model"] == "whisper-1"
+        assert call["response_format"] == "text"
+
+    def test_openai_transmission_langue(self):
+        """La langue affichable est convertie en code ISO pour Whisper"""
+        client = self._mock_openai_client("ok")
+        self.engine.transcrire_audio(
+            b"fake-audio", filename="dictee.wav",
+            langue="Français", api_key="fake-key", client=client,
+        )
+        assert client.audio.calls[0]["language"] == "fr"
+
+    def test_openai_langue_nederlandaise(self):
+        """Le néerlandais est bien converti en 'nl'"""
+        client = self._mock_openai_client("ok")
+        self.engine.transcrire_audio(
+            b"fake-audio", filename="dictee.wav",
+            langue="Néerlandais", api_key="fake-key", client=client,
+        )
+        assert client.audio.calls[0]["language"] == "nl"
+
+    def test_openai_langue_auto_pas_transmise(self):
+        """Sans langue précisée, Whisper détecte automatiquement"""
+        client = self._mock_openai_client("ok")
+        self.engine.transcrire_audio(
+            b"fake-audio", filename="dictee.wav",
+            langue=None, api_key="fake-key", client=client,
+        )
+        assert "language" not in client.audio.calls[0]
+
+    def test_openai_prompt_medical_priming(self):
+        """Le vocabulaire médical est transmis comme initial_prompt"""
+        client = self._mock_openai_client("ok")
+        self.engine.transcrire_audio(
+            b"fake-audio", filename="dictee.wav",
+            api_key="fake-key", client=client,
+        )
+        prompt = client.audio.calls[0].get("initial_prompt", "")
+        assert len(prompt) > 0
+        assert len(prompt) <= 650
+        # Doit contenir des termes cliniques FR/NL
+        assert "tension" in prompt.lower() or "bloeddruk" in prompt.lower()
+        # Les médicaments courants doivent être primés (noms propres sensibles)
+        assert "paracétamol" in prompt.lower() or "paracetamol" in prompt.lower()
+
+    def test_openai_modele_personnalise(self):
+        """Un modèle plus précis peut être sélectionné"""
+        client = self._mock_openai_client("ok")
+        self.engine.transcrire_audio(
+            b"fake-audio", filename="dictee.wav",
+            model="gpt-4o-transcribe", api_key="fake-key", client=client,
+        )
+        assert client.audio.calls[0]["model"] == "gpt-4o-transcribe"
+
+    def test_openai_erreur_api_key_invalide(self):
+        """Une erreur 401 est traduite en message actionnable"""
+        class MockAudio:
+            def transcribe(self, **kwargs):
+                raise Exception("Error code: 401 - Invalid API Key provided")
+
+        class MockClient:
+            pass
+
+        client = MockClient()
+        client.audio = MockAudio()
+        with pytest.raises(TranscriptionError) as excinfo:
+            self.engine.transcrire_audio(
+                b"data", filename="dictee.wav",
+                api_key="bad-key", client=client,
+            )
+        assert "clé api" in str(excinfo.value).lower()
+
+    def test_openai_erreur_rate_limit(self):
+        """Une erreur 429 est traduite en message actionnable"""
+        class MockAudio:
+            def transcribe(self, **kwargs):
+                raise Exception("Error code: 429 - Rate limit reached")
+
+        class MockClient:
+            pass
+
+        client = MockClient()
+        client.audio = MockAudio()
+        with pytest.raises(TranscriptionError) as excinfo:
+            self.engine.transcrire_audio(
+                b"data", filename="dictee.wav",
+                api_key="fake-key", client=client,
+            )
+        assert "rate limit" in str(excinfo.value).lower()
+
+    def test_openai_transcription_vide(self):
+        """Une transcription vide lève une erreur claire"""
+        client = self._mock_openai_client("")
+        with pytest.raises(TranscriptionError) as excinfo:
+            self.engine.transcrire_audio(
+                b"data", filename="dictee.wav",
+                api_key="fake-key", client=client,
+            )
+        assert "vide" in str(excinfo.value).lower()
+
+    # --- Backend local (openai-whisper) ---
+
+    def test_whisper_local_transcription(self, monkeypatch):
+        """Sans clé API, le backend local est utilisé"""
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        self._mock_whisper(monkeypatch, "Transcription 100% locale")
+        result = self.engine.transcrire_audio(
+            b"fake-audio", filename="dictee.wav", api_key="",
+        )
+        assert result == "Transcription 100% locale"
+
+    def test_whisper_local_langue(self, monkeypatch):
+        """La langue est transmise au modèle local"""
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+        appels = {}
+
+        class MockModel:
+            def transcribe(self, path, **kwargs):
+                appels.update(kwargs)
+                return {"text": "ok"}
+
+        class MockWhisper:
+            def load_model(self, name):
+                return MockModel()
+
+        monkeypatch.setitem(sys.modules, "whisper", MockWhisper())
+        self.engine.transcrire_audio(
+            b"fake-audio", filename="dictee.wav",
+            langue="Néerlandais", api_key="",
+        )
+        assert appels.get("language") == "nl"
+
+    def test_whisper_local_prompt_medical(self, monkeypatch):
+        """Le priming du vocabulaire médical est transmis au modèle local"""
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+        appels = {}
+
+        class MockModel:
+            def transcribe(self, path, **kwargs):
+                appels.update(kwargs)
+                return {"text": "ok"}
+
+        class MockWhisper:
+            def load_model(self, name):
+                return MockModel()
+
+        monkeypatch.setitem(sys.modules, "whisper", MockWhisper())
+        self.engine.transcrire_audio(
+            b"fake-audio", filename="dictee.wav", api_key="",
+        )
+        assert appels.get("initial_prompt")
+        assert "tension" in appels["initial_prompt"]
+
+    def test_whisper_local_transcription_vide(self, monkeypatch):
+        """Une transcription locale vide lève une erreur claire"""
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        self._mock_whisper(monkeypatch, text="")
+        with pytest.raises(TranscriptionError) as excinfo:
+            self.engine.transcrire_audio(
+                b"fake-audio", filename="dictee.wav", api_key="",
+            )
+        assert "vide" in str(excinfo.value).lower()
+
+    # --- Validation du fichier ---
+
+    def test_fichier_trop_gros(self):
+        """Un fichier > 25 Mo est rejeté avant tout appel"""
+        gros = b"x" * (26 * 1024 * 1024)
+        with pytest.raises(TranscriptionError) as excinfo:
+            self.engine.transcrire_audio(gros, filename="gros.wav", api_key="")
+        assert "volumineux" in str(excinfo.value).lower()
+
+    def test_format_non_supporte(self):
+        """Un format non supporté est rejeté avec la liste des formats"""
+        with pytest.raises(TranscriptionError) as excinfo:
+            self.engine.transcrire_audio(b"data", filename="video.avi", api_key="")
+        msg = str(excinfo.value).lower()
+        assert "format" in msg
+        assert ".mp3" in msg
+
+    def test_fichier_vide(self):
+        """Un fichier vide est rejeté"""
+        with pytest.raises(TranscriptionError) as excinfo:
+            self.engine.transcrire_audio(b"", filename="vide.wav", api_key="")
+        assert "vide" in str(excinfo.value).lower()
+
+    def test_modele_inconnu(self):
+        """Un modèle inconnu est rejeté avec la liste des modèles"""
+        with pytest.raises(TranscriptionError) as excinfo:
+            self.engine.transcrire_audio(
+                b"data", filename="dictee.wav",
+                model="modele-inexistant", api_key="fake-key",
+                client=self._mock_openai_client(),
+            )
+        msg = str(excinfo.value).lower()
+        assert "modèle" in msg
+        assert "whisper-1" in msg
+
+    # --- Aucun backend ---
+
+    def test_aucun_backend_disponible(self, monkeypatch):
+        """Sans API ni Whisper local, l'erreur guide l'installation"""
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.setitem(sys.modules, "whisper", None)
+        with pytest.raises(TranscriptionError) as excinfo:
+            self.engine.transcrire_audio(
+                b"data", filename="dictee.wav", api_key="",
+            )
+        msg = str(excinfo.value).lower()
+        assert "openai" in msg
+        assert "openai-whisper" in msg
+
+    # --- Helpers du moteur ---
+
+    def test_normalisation_langue(self):
+        """Les langues affichables sont normalisées en codes ISO"""
+        assert NurseLogEngine._normaliser_langue("Français") == "fr"
+        assert NurseLogEngine._normaliser_langue("francais") == "fr"
+        assert NurseLogEngine._normaliser_langue("néerlandais") == "nl"
+        assert NurseLogEngine._normaliser_langue("NL") == "nl"
+        assert NurseLogEngine._normaliser_langue(None) is None
+        assert NurseLogEngine._normaliser_langue("") is None
+        assert NurseLogEngine._normaliser_langue("espagnol") is None
+
+    def test_prompt_medical_structure(self):
+        """Le prompt médical est borné et contient du vocabulaire bilingue"""
+        prompt = NurseLogEngine._construire_prompt_medical()
+        assert 0 < len(prompt) <= 650
+        # Pas de doublons
+        termes = [t.strip().lower() for t in prompt.split(",")]
+        assert len(termes) == len(set(termes))
+
+    def test_prompt_medical_ordre_prioritaire(self):
+        """Signes vitaux d'abord, puis médicaments, puis vocabulaire de base"""
+        prompt = NurseLogEngine._construire_prompt_medical()
+        pos_signes = prompt.lower().find("tension")
+        pos_medicament = prompt.lower().find("paracetamol")
+        assert pos_signes != -1
+        assert pos_medicament != -1
+        assert pos_signes < pos_medicament
+
+    def test_constante_medicaments_courants(self):
+        """La liste partagée est cohérente (pas de doublons, non vide)"""
+        meds = NurseLogEngine.MEDICAMENTS_COURANTS
+        assert len(meds) > 0
+        bas = [m.lower() for m in meds]
+        assert len(bas) == len(set(bas))
+
+    # --- Modèle local (taille + cache) ---
+
+    def test_local_model_transmis_a_load_model(self, monkeypatch):
+        """La taille demandée est bien passée à whisper.load_model"""
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+        charges = []
+
+        class MockModel:
+            def transcribe(self, path, **kwargs):
+                return {"text": "ok"}
+
+        class MockWhisper:
+            def load_model(self, name):
+                charges.append(name)
+                return MockModel()
+
+        monkeypatch.setitem(sys.modules, "whisper", MockWhisper())
+        self.engine.transcrire_audio(
+            b"fake-audio", filename="dictee.wav",
+            api_key="", local_model="small",
+        )
+        assert charges == ["small"]
+
+    def test_local_model_invalide(self):
+        """Une taille inconnue est rejetée avec la liste des tailles"""
+        with pytest.raises(TranscriptionError) as excinfo:
+            self.engine.transcrire_audio(
+                b"data", filename="dictee.wav",
+                local_model="gigantic", api_key="fake-key",
+                client=self._mock_openai_client(),
+            )
+        msg = str(excinfo.value).lower()
+        assert "tailles" in msg or "taille" in msg
+        assert "tiny" in msg
+        assert "small" in msg
+
+    def test_cache_modele_local(self, monkeypatch):
+        """Le modèle est chargé une seule fois sur deux transcriptions"""
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+        charges = []
+
+        class MockModel:
+            def transcribe(self, path, **kwargs):
+                return {"text": "ok"}
+
+        class MockWhisper:
+            def load_model(self, name):
+                charges.append(name)
+                return MockModel()
+
+        monkeypatch.setitem(sys.modules, "whisper", MockWhisper())
+        self.engine.transcrire_audio(
+            b"fake-audio", filename="dictee.wav", api_key="",
+        )
+        self.engine.transcrire_audio(
+            b"fake-audio", filename="dictee2.wav", api_key="",
+        )
+        assert charges == ["base"]
+
+    def test_cache_repli_tiny(self, monkeypatch):
+        """Si la taille demandée échoue, on retombe sur 'tiny'"""
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+        charges = []
+
+        class MockModel:
+            def transcribe(self, path, **kwargs):
+                return {"text": "ok"}
+
+        class MockWhisper:
+            def load_model(self, name):
+                charges.append(name)
+                if name != "tiny":
+                    raise RuntimeError("téléchargement impossible")
+                return MockModel()
+
+        monkeypatch.setitem(sys.modules, "whisper", MockWhisper())
+        result = self.engine.transcrire_audio(
+            b"fake-audio", filename="dictee.wav", api_key="",
+            local_model="small",
+        )
+        assert result == "ok"
+        assert charges == ["small", "tiny"]
+
+    def test_statut_transcription_modeles_locaux(self):
+        """Le statut expose les tailles de modèles locaux"""
+        statut = NurseLogEngine.statut_transcription()
+        assert "modeles_locaux" in statut
+        assert statut["modeles_locaux"] == ["tiny", "base", "small"]
+
+    def test_statut_transcription_structure(self):
+        """Le statut expose les backends et les capacités"""
+        statut = NurseLogEngine.statut_transcription()
+        assert "disponible" in statut
+        assert "backend" in statut
+        assert "modeles" in statut
+        assert "formats" in statut
+        assert "taille_max_mo" in statut
+        assert "whisper-1" in statut["modeles"]
+        assert "gpt-4o-transcribe" in statut["modeles"]
+        assert "mp3" in statut["formats"]
+        assert "wav" in statut["formats"]
+        assert statut["taille_max_mo"] == 25
+
+    def test_constantes_moteur(self):
+        """Les constantes publiques sont cohérentes"""
+        assert NurseLogEngine.TAILLE_MAX_AUDIO_MO == 25
+        assert "whisper-1" in NurseLogEngine.MODELES_TRANSCRIPTION
+        assert "mp3" in NurseLogEngine.FORMATS_AUDIO_SUPPORTES
+        assert "webm" in NurseLogEngine.FORMATS_AUDIO_SUPPORTES
 
 
 if __name__ == "__main__":
