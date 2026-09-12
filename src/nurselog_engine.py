@@ -16,6 +16,7 @@ avec RAG sur la terminologie médicale belge.
 
 import os
 import re
+import shutil
 import datetime
 import json
 import tempfile
@@ -641,7 +642,8 @@ class NurseLogEngine:
             "Option 1 (API) : installez le package `openai` "
             "(`pip install openai`) et définissez OPENAI_API_KEY.\n"
             "Option 2 (local, 100% RGPD) : installez `openai-whisper` "
-            "(`pip install openai-whisper`)."
+            "(`pip install openai-whisper`) et `ffmpeg` "
+            "(Windows : `winget install Gyan.FFmpeg`)."
         )
 
     @staticmethod
@@ -767,6 +769,76 @@ class NurseLogEngine:
             )
         return f"Erreur lors de la transcription : {e}"
 
+    @staticmethod
+    def _chercher_ffmpeg() -> Optional[str]:
+        """Localise l'exécutable ffmpeg (requis par openai-whisper).
+
+        Cherche d'abord dans le PATH, puis dans les emplacements
+        d'installation courants (winget, scoop, Homebrew, système).
+
+        Returns:
+            Le chemin complet de l'exécutable, ou None s'il est introuvable.
+        """
+        trouve = shutil.which("ffmpeg")
+        if trouve:
+            return trouve
+
+        binaire = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+        candidats: List[str] = []
+        if os.name == "nt":
+            base_user = os.path.expanduser("~")
+            # winget : Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-*-full_build/bin
+            winget = os.path.join(
+                base_user, "AppData", "Local", "Microsoft", "WinGet", "Packages"
+            )
+            if os.path.isdir(winget):
+                for paquet in os.listdir(winget):
+                    if paquet.lower().startswith("gyan.ffmpeg"):
+                        racine = os.path.join(winget, paquet)
+                        try:
+                            builds = os.listdir(racine)
+                        except OSError:
+                            continue
+                        for build in builds:
+                            bin_dir = os.path.join(racine, build, "bin")
+                            if os.path.isfile(os.path.join(bin_dir, binaire)):
+                                candidats.append(bin_dir)
+            # scoop / installations manuelles courantes
+            candidats += [
+                os.path.join(base_user, "scoop", "shims"),
+                r"C:\Program Files\ffmpeg\bin",
+                r"C:\ffmpeg\bin",
+            ]
+        else:
+            # macOS (Homebrew) / Linux
+            candidats += ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"]
+
+        for dossier in candidats:
+            chemin = os.path.join(dossier, binaire)
+            if os.path.isfile(chemin):
+                return chemin
+        return None
+
+    @classmethod
+    def _assurer_ffmpeg(cls) -> Optional[str]:
+        """S'assure que ffmpeg est accessible dans le PATH.
+
+        openai-whisper appelle ffmpeg en sous-processus pour décoder
+        l'audio. Si l'exécutable est installé mais hors du PATH
+        (cas fréquent avec winget sur Windows), on préfixe le dossier
+        qui le contient au PATH pour que l'appel fonctionne.
+
+        Returns:
+            Le chemin de l'exécutable, ou None s'il est introuvable.
+        """
+        chemin = cls._chercher_ffmpeg()
+        if chemin:
+            dossier = os.path.dirname(chemin)
+            path_actuel = os.environ.get("PATH", "")
+            if dossier.lower() not in path_actuel.lower().split(os.pathsep):
+                os.environ["PATH"] = dossier + os.pathsep + path_actuel
+        return chemin
+
     def _transcrire_local(
         self,
         audio_data: bytes,
@@ -780,6 +852,18 @@ class NurseLogEngine:
         ce qui accélère fortement les transcriptions suivantes.
         """
         import whisper
+
+        # ffmpeg est requis par whisper pour décoder l'audio
+        if NurseLogEngine._assurer_ffmpeg() is None:
+            raise TranscriptionError(
+                "ffmpeg est introuvable — il est requis par Whisper local "
+                "pour décoder l'audio.\n"
+                "Installation :\n"
+                "  - Windows : `winget install Gyan.FFmpeg` (ou `choco install ffmpeg`)\n"
+                "  - macOS : `brew install ffmpeg`\n"
+                "  - Linux : `sudo apt install ffmpeg`\n"
+                "Puis relancez l'application."
+            )
 
         suffix = os.path.splitext(filename)[1] or ".wav"
         tmp_path = None
@@ -860,6 +944,9 @@ class NurseLogEngine:
         except ImportError:
             pass
 
+        # ffmpeg est requis par le backend local (décodage audio)
+        ffmpeg_ok = cls._chercher_ffmpeg() is not None
+
         if api_key and openai_ok:
             backend = "openai"
         elif whisper_local_ok:
@@ -873,6 +960,7 @@ class NurseLogEngine:
             "api_key": bool(api_key),
             "openai_installe": openai_ok,
             "whisper_local_installe": whisper_local_ok,
+            "ffmpeg_disponible": ffmpeg_ok,
             "modeles": list(cls.MODELES_TRANSCRIPTION),
             "modeles_locaux": list(cls.MODELES_LOCAUX),
             "formats": list(cls.FORMATS_AUDIO_SUPPORTES),

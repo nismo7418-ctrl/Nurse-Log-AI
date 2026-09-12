@@ -4,6 +4,8 @@ Tests unitaires pour le moteur NurseLog AI
 
 import sys
 import os
+import shutil
+import tempfile
 import pytest
 
 # Ajouter le dossier parent au chemin pour importer src
@@ -413,6 +415,14 @@ class TestTranscriptionAudio:
         return client
 
     @staticmethod
+    def _ffmpeg_fictif(monkeypatch):
+        """Rend les tests mockés indépendants de l'installation réelle de ffmpeg."""
+        chemin = os.path.join(tempfile.gettempdir(), "ffmpeg-fictif", "ffmpeg")
+        monkeypatch.setattr(
+            NurseLogEngine, "_chercher_ffmpeg", staticmethod(lambda: chemin)
+        )
+
+    @staticmethod
     def _mock_whisper(monkeypatch, text="Transcription 100% locale"):
         """Module openai-whisper factice."""
         class MockModel:
@@ -424,6 +434,7 @@ class TestTranscriptionAudio:
                 return MockModel()
 
         monkeypatch.setitem(sys.modules, "whisper", MockWhisper())
+        TestTranscriptionAudio._ffmpeg_fictif(monkeypatch)
 
     # --- Backend API OpenAI ---
 
@@ -572,6 +583,7 @@ class TestTranscriptionAudio:
                 return MockModel()
 
         monkeypatch.setitem(sys.modules, "whisper", MockWhisper())
+        self._ffmpeg_fictif(monkeypatch)
         self.engine.transcrire_audio(
             b"fake-audio", filename="dictee.wav",
             langue="Néerlandais", api_key="",
@@ -594,6 +606,7 @@ class TestTranscriptionAudio:
                 return MockModel()
 
         monkeypatch.setitem(sys.modules, "whisper", MockWhisper())
+        self._ffmpeg_fictif(monkeypatch)
         self.engine.transcrire_audio(
             b"fake-audio", filename="dictee.wav", api_key="",
         )
@@ -659,6 +672,48 @@ class TestTranscriptionAudio:
         assert "openai" in msg
         assert "openai-whisper" in msg
 
+    # --- Détection ffmpeg (dépendance du backend local) ---
+
+    def test_chercher_ffmpeg_absent_retourne_none(self, monkeypatch):
+        """Sans ffmpeg dans le PATH ni les emplacements connus : None"""
+        monkeypatch.setattr(shutil, "which", lambda name: None)
+        monkeypatch.setattr(os.path, "isfile", lambda p: False)
+        assert NurseLogEngine._chercher_ffmpeg() is None
+
+    def test_assurer_ffmpeg_prefixe_le_path(self, monkeypatch):
+        """Un ffmpeg hors PATH est ajouté au PATH pour que whisper le trouve"""
+        dossier = os.path.join(tempfile.gettempdir(), "ffmpeg-fictif")
+        binaire = os.path.join(dossier, "ffmpeg")
+        monkeypatch.setattr(
+            NurseLogEngine, "_chercher_ffmpeg", staticmethod(lambda: binaire)
+        )
+        monkeypatch.setenv("PATH", os.path.join(tempfile.gettempdir(), "autre"))
+        resultat = NurseLogEngine._assurer_ffmpeg()
+        assert resultat == binaire
+        assert dossier in os.environ["PATH"].split(os.pathsep)
+
+    def test_transcription_locale_sans_ffmpeg_erreur_claire(self, monkeypatch):
+        """Sans ffmpeg, l'erreur guide l'installation"""
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        self._mock_whisper(monkeypatch, "ok")
+        # Simule l'absence totale de ffmpeg (remplace le patch fictif)
+        monkeypatch.setattr(
+            NurseLogEngine, "_chercher_ffmpeg", staticmethod(lambda: None)
+        )
+        with pytest.raises(TranscriptionError) as excinfo:
+            self.engine.transcrire_audio(
+                b"fake-audio", filename="dictee.wav", api_key="",
+            )
+        msg = str(excinfo.value).lower()
+        assert "ffmpeg" in msg
+        assert "winget" in msg or "brew" in msg or "apt" in msg
+
+    def test_statut_transcription_inclut_ffmpeg(self):
+        """Le statut expose la disponibilité de ffmpeg"""
+        statut = NurseLogEngine.statut_transcription()
+        assert "ffmpeg_disponible" in statut
+        assert isinstance(statut["ffmpeg_disponible"], bool)
+
     # --- Helpers du moteur ---
 
     def test_normalisation_langue(self):
@@ -713,6 +768,7 @@ class TestTranscriptionAudio:
                 return MockModel()
 
         monkeypatch.setitem(sys.modules, "whisper", MockWhisper())
+        self._ffmpeg_fictif(monkeypatch)
         self.engine.transcrire_audio(
             b"fake-audio", filename="dictee.wav",
             api_key="", local_model="small",
@@ -748,6 +804,7 @@ class TestTranscriptionAudio:
                 return MockModel()
 
         monkeypatch.setitem(sys.modules, "whisper", MockWhisper())
+        self._ffmpeg_fictif(monkeypatch)
         self.engine.transcrire_audio(
             b"fake-audio", filename="dictee.wav", api_key="",
         )
@@ -774,6 +831,7 @@ class TestTranscriptionAudio:
                 return MockModel()
 
         monkeypatch.setitem(sys.modules, "whisper", MockWhisper())
+        self._ffmpeg_fictif(monkeypatch)
         result = self.engine.transcrire_audio(
             b"fake-audio", filename="dictee.wav", api_key="",
             local_model="small",

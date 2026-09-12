@@ -69,6 +69,9 @@ NurseLog AI suit une architecture en 3 couches :
 **Algorithmes** :
 - Extraction par regex + NLP (phase 1)
 - Whisper (API OpenAI ou local 100% RGPD) pour transcription vocale (phase 1)
+  - Le backend local (`openai-whisper`) requiert `ffmpeg` dans le PATH
+    (ou détecté automatiquement : winget, scoop, Homebrew —
+    voir `NurseLogEngine._chercher_ffmpeg()` / `_assurer_ffmpeg()`)
 - Llama 3 pour génération de texte (phase 1)
 - Fine-tuning modèles médicaux (phase 3)
 

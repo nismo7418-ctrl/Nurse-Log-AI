@@ -4,7 +4,7 @@
 > Transformez votre dictée naturelle en rapports de soins structurés, conformes aux standards belges (KCE, eHealth, NAA).
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue)](https://python.org)
-[![Tests](https://img.shields.io/badge/Tests-82%20passing-green)]()
+[![Tests](https://img.shields.io/badge/Tests-88%20passing-green)]()
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.30+-orange)](https://streamlit.io)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
@@ -44,6 +44,10 @@ pip install -r requirements.txt
 export OPENAI_API_KEY="sk-..."
 #    Option B — Whisper local 100% RGPD (aucune clé, aucune donnée envoyée) :
 pip install openai-whisper
+#    + ffmpeg (requis par Whisper pour décoder l'audio) :
+#      Windows : winget install Gyan.FFmpeg   (ou choco install ffmpeg)
+#      macOS   : brew install ffmpeg
+#      Linux   : sudo apt install ffmpeg
 
 # 4. Lancer l'application
 streamlit run app.py
@@ -77,7 +81,7 @@ NurseLog AI/
 - **Streamlit** : Interface utilisateur interactive
 - **SQLite** : Stockage local des données
 - **ReportLab** : Génération PDF professionnelle
-- **OpenAI Whisper API** : Reconnaissance vocale
+- **OpenAI Whisper** : Reconnaissance vocale (API, ou local 100% RGPD via `openai-whisper` + `ffmpeg`)
 - **Pandas** : Export CSV et analyse de données
 
 ### Principes de conception
@@ -98,8 +102,8 @@ Nurse-Log-AI/
 │   ├── database.py         # Couche SQLite (rapports, profils, brouillons)
 │   └── templates.py        # Templates belges (KCE, NAA, SBAr)
 ├── tests/
-│   ├── test_engine.py      # Tests du moteur (67 tests)
-│   ├── test_database.py    # Tests de la couche DB (12 tests)
+│   ├── test_engine.py      # Tests du moteur (71 tests)
+│   ├── test_database.py    # Tests de la couche DB (13 tests)
 │   └── test_nl_support.py  # Tests du support néerlandais (4 tests)
 ├── .streamlit/
 │   └── config.toml         # Configuration Streamlit + thème
@@ -135,7 +139,7 @@ pytest tests/ --cov=src --cov-report=term-missing
 pytest tests/test_engine.py -v
 ```
 
-**Statut actuel : 82 passed, 1 skipped (ReportLab optionnel)**
+**Statut actuel : 88 passed, 0 skipped (ReportLab installé)**
 
 ---
 

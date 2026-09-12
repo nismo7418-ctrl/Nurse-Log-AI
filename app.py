@@ -23,6 +23,8 @@ from database import (
     sauvegarder_brouillon,
     recuperer_brouillon,
     supprimer_brouillon,
+    generer_pdf_rapport,
+    exporter_pdf_rapport,
 )
 
 # ============ CONFIGURATION PAGE ============
@@ -128,13 +130,9 @@ from database import initialiser_base
 initialiser_base()  # Activer l'initialisation pour l'application principale
 
 # ============ INITIALISATION PDF EXPORT ============
-test_pdf_available = False
-try:
-    from database import exporter_pdf_rapport
-    PDF_EXPORT_AVAILABLE = True
-    test_pdf_available = True
-except ImportError:
-    PDF_EXPORT_AVAILABLE = False
+# Le drapeau reflète la disponibilité réelle de ReportLab (dépendance optionnelle).
+import importlib.util
+PDF_EXPORT_AVAILABLE = importlib.util.find_spec("reportlab") is not None
 
 # ============ CONFIGURATION RECONNAISSANCE VOCALE ============
 # Le moteur gère les backends (API OpenAI / Whisper local) et la validation.
@@ -177,6 +175,13 @@ def _afficher_module_voix(dictee_actuelle: str):
         st.success("🎙️ Transcription via **API OpenAI** (vocabulaire médical activé)")
     else:
         st.success("🎙️ Transcription **100% locale** (Whisper) — aucune donnée ne quitte la machine")
+        if not VOIX_STATUT.get("ffmpeg_disponible"):
+            st.warning(
+                "⚠️ `ffmpeg` n'est pas détecté — requis par Whisper local pour décoder l'audio.\n\n"
+                "Installation : **Windows** `winget install Gyan.FFmpeg` — "
+                "**macOS** `brew install ffmpeg` — **Linux** `sudo apt install ffmpeg`\n\n"
+                "Puis relancez l'application."
+            )
 
     formats = [f".{f}" for f in VOIX_STATUT["formats"]]
     audio_file = st.file_uploader(
@@ -569,8 +574,7 @@ elif page == "📋 Historique":
     
     if not historique_db:
         st.info("📭 Aucun rapport trouvé. Commencez par créer un rapport !")
-        # Bouton pour export CSV
-        st.markdown('<span class="badge-bientot">📥 Export CSV — Bientôt disponible</span>', unsafe_allow_html=True)
+        st.caption("💡 L'export CSV et PDF sera disponible dès que vous aurez enregistré des rapports.")
     else:
         st.success(f"📊 {len(historique_db)} rapport(s) trouvé(s)")
         for i, rapport_hist in enumerate(historique_db):
@@ -604,6 +608,25 @@ elif page == "📋 Historique":
                 st.divider()
                 with st.expander("📄 JSON complet"):
                     st.json(rapport_hist)
+                
+                # Export PDF de ce rapport
+                if PDF_EXPORT_AVAILABLE:
+                    if st.button("📄 Exporter ce rapport en PDF", key=f"btn_pdf_hist_{db_id}"):
+                        pdf_bytes = generer_pdf_rapport(rapport_hist)
+                        if pdf_bytes:
+                            st.session_state[f"pdf_hist_{db_id}"] = pdf_bytes
+                        else:
+                            st.error("Échec de la génération du PDF.")
+                    if st.session_state.get(f"pdf_hist_{db_id}"):
+                        st.download_button(
+                            label="⬇️ Télécharger le PDF",
+                            data=st.session_state[f"pdf_hist_{db_id}"],
+                            file_name=f"nurselog_{patient.get('nom', 'rapport')}_{metadata.get('date', 'date')}.pdf",
+                            mime="application/pdf",
+                            key=f"dl_pdf_hist_{db_id}",
+                        )
+                else:
+                    st.caption("📥 Export PDF indisponible — installez ReportLab (`pip install reportlab`).")
         
         # Bouton pour export CSV
         st.markdown("---")
@@ -624,8 +647,7 @@ elif page == "📋 Historique":
             except Exception as e:
                 st.error(f"Erreur lors de l'export CSV : {e}")
                 
-        # Bouton pour export PDF (optionnel)
-        st.markdown('<span class="badge-bientot">📤 Export PDF — Bientôt disponible</span>', unsafe_allow_html=True)
+        # L'export PDF par rapport est disponible dans chaque fiche ci-dessus.
 # ============ PAGE: TABLEAU DE BORD ============
 elif page == "📊 Tableau de bord":
     st.markdown("<p class='main-header'>📊 Tableau de bord</p>", unsafe_allow_html=True)
@@ -930,9 +952,7 @@ if st.session_state.rapport and st.session_state.rapport_origin_page == page:
         
         with col1:
             if st.button("❌ Modifier", type="secondary"):
-                # Conserver le brouillon de dictée
-                if st.session_state.rapport_origin_page == "🎙️ Dictée Rapide":
-                    st.session_state.dictee_draft = st.session_state.dictee_draft  # déjà conservé
+                # Le brouillon de dictée est déjà conservé dans st.session_state.dictee_draft
                 st.session_state.rapport = None
                 st.session_state.rapport_origin_page = None
                 st.rerun()

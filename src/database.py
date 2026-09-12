@@ -449,6 +449,36 @@ def exporter_pdf_rapport(rapport: dict, chemin_fichier: str):
         return False
 
 
+def generer_pdf_rapport(rapport: dict) -> bytes | None:
+    """
+    Génère le PDF d'un rapport en mémoire (bytes), pour téléchargement direct.
+    Réutilise `exporter_pdf_rapport()` via un fichier temporaire.
+    Retourne None si ReportLab n'est pas disponible ou en cas d'erreur.
+    """
+    import os
+    import tempfile
+
+    try:
+        fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
+        os.close(fd)
+    except Exception:
+        return None
+
+    try:
+        if not exporter_pdf_rapport(rapport, tmp_path):
+            return None
+        with open(tmp_path, "rb") as f:
+            return f.read()
+    except Exception:
+        return None
+    finally:
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except Exception:
+            pass
+
+
 def generer_csv_historique(infirmier_id: int | None = None) -> str:
     """
     Génère le contenu CSV de l'historique des rapports (en mémoire).

@@ -21,6 +21,7 @@ from database import (
     recuperer_historique,
     recuperer_stats,
     exporter_pdf_rapport,
+    generer_pdf_rapport,
     DATABASE_PATH,
 )
 
@@ -112,6 +113,17 @@ class TestDatabase:
         import os
         assert os.path.exists("test_export.pdf")
         os.remove("test_export.pdf")
+
+    def test_generer_pdf_rapport(self, db_temp):
+        """Génération du PDF en mémoire (skip si ReportLab non disponible)."""
+        import importlib.util
+        if importlib.util.find_spec("reportlab") is None:
+            pytest.skip("ReportLab non installé dans cet environnement")
+        
+        pdf_bytes = generer_pdf_rapport(RAPPORT_TEST)
+        assert isinstance(pdf_bytes, bytes)
+        assert pdf_bytes.startswith(b"%PDF-")
+        assert len(pdf_bytes) > 0
 
 
 class TestDatabaseErrors:

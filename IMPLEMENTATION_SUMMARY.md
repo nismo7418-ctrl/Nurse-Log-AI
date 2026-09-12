@@ -46,7 +46,7 @@ Compléter l'implémentation du projet NurseLog AI selon les corrections propos�
 
 ### Phase 1.5 - Complétion des fonctionnalités principales
 1. ✅ **Dictée vocale réelle** - Transcription audio via API OpenAI Whisper **ou** Whisper local 100% RGPD (fallback automatique), avec indice de langue FR/NL, priming du vocabulaire médical, choix du modèle et aperçu de la transcription avant insertion dans la dictée
-2. ✅ **Export PDF complet** - Génération de documents PDF conformes aux standards infirmiers
+2. ✅ **Export PDF complet** - Génération de documents PDF conformes aux standards infirmiers (bouton de téléchargement par rapport dans l'historique + après validation)
 3. ✅ **Gestion robuste des dépendances** - Fallbacks clairs lorsque les bibliothèques ne sont pas présentes
 4. ✅ **Export CSV** - Export complet des rapports en format CSV pour analyse
 5. ✅ **Tableau de bord amélioré** - Statistiques détaillées par infirmier
@@ -63,7 +63,7 @@ Compléter l'implémentation du projet NurseLog AI selon les corrections propos�
 
 ## 🧪 Tests unitaires
 
-- ✅ 75 tests passants (1 skipped pour export PDF non installé)
+- ✅ 88 tests passants, 0 skipped (ReportLab installé)
 - ✅ Couverture complète de la logique métier
 - ✅ Tests spécifiques à chaque nouvelle fonctionnalité
 - ✅ Tests d'erreur et de gestion des dépendances
@@ -109,7 +109,7 @@ NurseLog AI/
 
 ## 📊 Statistiques finales
 
-- ✅ **75 tests unitaires passants**
+- ✅ **88 tests unitaires passants**
 - ✅ **100% de couverture des fonctionnalités clés**
 - ✅ **11 fonctionnalités UX améliorées**
 - ✅ **24 corrections techniques critiques**

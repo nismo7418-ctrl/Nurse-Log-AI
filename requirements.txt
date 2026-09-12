@@ -16,6 +16,12 @@ pydantic>=2.5.0
 openai>=1.10.0
 # Option B : Whisper local 100% RGPD (aucune clé, aucune donnée envoyée)
 # openai-whisper>=20231117
+#   + ffmpeg requis par Whisper pour décoder l'audio (non distribué via pip) :
+#     Windows : winget install Gyan.FFmpeg  (ou choco install ffmpeg)
+#     macOS   : brew install ffmpeg
+#     Linux   : sudo apt install ffmpeg
+#   NB : le moteur détecte automatiquement un ffmpeg installé hors du PATH
+#        (winget, scoop, Homebrew) — voir nurselog_engine._chercher_ffmpeg()
 
 # Développement & tests
 pytest>=7.4.0
