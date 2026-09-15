@@ -23,6 +23,10 @@ openai>=1.10.0
 #   NB : le moteur détecte automatiquement un ffmpeg installé hors du PATH
 #        (winget, scoop, Homebrew) — voir nurselog_engine._chercher_ffmpeg()
 
+# Pour le relay audio local (micro navigateur → transcription)
+# → audio_relay.py utilise uniquement la stdlib Python (http.server, threading)
+# → aucune dépendance supplémentaire requise
+
 # Développement & tests
 pytest>=7.4.0
 

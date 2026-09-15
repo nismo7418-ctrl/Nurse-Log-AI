@@ -1,0 +1,13 @@
+Soins: ["Injection administrée", "Oxygénation / SpO2 vérifiée (oxygen)"]
+Alertes: ["⚠️ Hypoxémie modérée (SpO2 < 95%)"]
+Plan: ["Réévaluation douleur après traitement"]
+Medicaments: [{"nom": "Injection morphine", "dose": "2", "unite": "mg", "voie": "IV"}, {"nom": "morphine", "dose": "2", "unite": "mg", "voie": "IV"}]
+Confort douleur: EVA: 8/10 — ⚠️ Douleur sévère
+Etat general: Patient conscient et éveillé
+texte_complet: injection administrée oxygénation / spo2 vérifiée (oxygen) ⚠️ hypoxémie modérée (spo2 < 95%) réévaluation douleur après traitement eva: 8/10 — ⚠️ douleur sévère patient conscient et éveillé
+Contains oxygene: False
+Contains oxygen: True
+Contains oxygenation: False
+Contains medecin: False
+Contains surveillance renforcee: False
+Contains surveillance renforce: False

@@ -4,7 +4,7 @@
 > Transformez votre dictée naturelle en rapports de soins structurés, conformes aux standards belges (KCE, eHealth, NAA).
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue)](https://python.org)
-[![Tests](https://img.shields.io/badge/Tests-88%20passing-green)]()
+[![Tests](https://img.shields.io/badge/Tests-148%20passing-green)]()
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.30+-orange)](https://streamlit.io)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
@@ -20,6 +20,8 @@
 | 📥 **Export PDF** | Génération PDF professionnelle (ReportLab) | ✅ |
 | 💾 **Brouillons** | Sauvegarde automatique de la dictée en cours (SQLite) | ✅ |
 | 🎤 **Reconnaissance vocale** | Transcription audio (API OpenAI **ou** Whisper local 100% RGPD), indice de langue FR/NL, vocabulaire médical, aperçu avant insertion | ✅ |
+| 🎧 **Widget audio temps réel** | Enregistrement navigateur → relay HTTP → transcription, auto-stop 5 min, mode accumulation, pré-écoute | ✅ |
+| 📊 **Score de complétude** | Évaluation automatique de la qualité du rapport (signes vitaux, plan, alertes) | ✅ |
 | 📤 **Export SIH/FHIR** | Intégration eHealth Belgique | 🔜 Phase 3 |
 | 🤖 **LLM local** | Llama 3 pour extraction sémantique avancée | 🔜 Phase 1.5 (à venir) |
 | 📊 **Tableau de bord** | Statistiques et métriques détaillées par infirmier | ✅ |
@@ -63,16 +65,35 @@ L'application est accessible sur `http://localhost:8501`.
 
 ```
 NurseLog AI/
-├── app.py               # Interface utilisateur Streamlit
-├── src/                 # Code source principal
-│   ├── database.py      # Gestion SQLite
-│   ├── nurselog_engine.py # Moteur d'IA (extraction + transcription)
-│   └── templates.py     # Templates et vocabulaire
-├── tests/               # Tests unitaires
-├── assets/              # Ressources (logos, images)
-├── docs/                # Documentation technique
-├── requirements.txt     # Dépendances
-└── README.md            # Document principal
+├── app.py                  # Interface utilisateur Streamlit (UI + logique métier)
+├── src/                    # Code source principal
+│   ├── __init__.py
+│   ├── nurselog_engine.py  # Moteur d'extraction (regex + mots-clés), scoring, SBAr
+│   ├── database.py         # Couche SQLite (rapports, profils, brouillons, PDF)
+│   ├── templates.py        # Templates belges (KCE, NAA, SBAr, vocabulaire médical)
+│   ├── audio_relay.py      # Relay HTTP pour POST audio navigateur → Python
+│   ├── streaming_components.py  # Widget audio JS (iframe, auto-stop, accumulation)
+│   └── logging_config.py   # Logging structuré + audit trail (Phase 3)
+├── tests/                  # Tests unitaires et intégration
+│   ├── conftest.py         # Fixtures partagées
+│   ├── test_engine.py      # Tests du moteur (88 tests)
+│   ├── test_database.py    # Tests de la couche DB
+│   ├── test_nl_support.py  # Tests du support néerlandais
+│   ├── test_phase2.py      # Tests Phase 2 (scoring, cross-ref, SBAr, NL)
+│   └── test_audio_relay.py # Tests intégration relay audio (27 tests)
+├── assets/                 # Ressources (logos, images)
+├── docs/                   # Documentation technique
+├── .streamlit/
+│   └── config.toml         # Configuration Streamlit + thème
+├── .github/
+│   └── workflows/
+│       └── ci.yml          # Pipeline CI (pytest sur push/PR)
+├── Makefile                # Tâches courantes (test, lint, run, clean)
+├── pyproject.toml          # Packaging + tooling (ruff, pytest)
+├── requirements.txt        # Dépendances
+├── .env.example            # Template de configuration
+├── Dockerfile              # Build multi-stage
+└── README.md
 ```
 
 ### Technologies utilisées
@@ -83,6 +104,8 @@ NurseLog AI/
 - **ReportLab** : Génération PDF professionnelle
 - **OpenAI Whisper** : Reconnaissance vocale (API, ou local 100% RGPD via `openai-whisper` + `ffmpeg`)
 - **Pandas** : Export CSV et analyse de données
+- **Ruff** : Linting et formatting
+- **pytest** : Tests unitaires et intégration
 
 ### Principes de conception
 
@@ -91,38 +114,9 @@ NurseLog AI/
 3. **Sécurité des données** : Données sensibles chiffrées
 4. **Local-first** : Application fonctionne sans connexion
 5. **Responsive design** : Adaptation mobile/tablette
-6. **Tests unitaires** : 100% de couverture pour la logique métier
+6. **Tests unitaires** : 148 tests couvrant la logique métier
 7. **Documentation complète** : Pour chaque composant
-
-```
-Nurse-Log-AI/
-├── app.py                  # Interface Streamlit (UI + logique métier)
-├── src/
-│   ├── nurselog_engine.py  # Moteur d'extraction (regex + mots-clés) et transcription
-│   ├── database.py         # Couche SQLite (rapports, profils, brouillons)
-│   └── templates.py        # Templates belges (KCE, NAA, SBAr)
-├── tests/
-│   ├── test_engine.py      # Tests du moteur (71 tests)
-│   ├── test_database.py    # Tests de la couche DB (13 tests)
-│   └── test_nl_support.py  # Tests du support néerlandais (4 tests)
-├── .streamlit/
-│   └── config.toml         # Configuration Streamlit + thème
-├── pyproject.toml          # Packaging + tooling (ruff, pytest)
-├── requirements.txt        # Dépendances
-├── .env.example            # Template de configuration
-└── README.md
-```
-
-### Moteur d'extraction
-
-Le moteur actuel est basé sur **regex et mots-clés** (pas un LLM) :
-- Extraction des signes vitaux (TA, FC, T°, SpO2, EVA, glycémie, FR)
-- Détection des soins réalisés (pansement, injection, perfusion, etc.)
-- Identification des alertes (chute, fièvre, hémorragie, etc.)
-- Mapping automatique des codes NAA belges
-- Génération de transmission SBAr
-
-> ⚠️ **Note** : Ce n'est PAS un LLM. La transcription Whisper (API ou 100% locale) est déjà intégrée ; l'extraction sémantique avancée par LLM local reste à venir (Phase 1.5).
+8. **CI/CD** : Pipeline GitHub Actions sur chaque push/PR
 
 ---
 
@@ -137,9 +131,22 @@ pytest tests/ --cov=src --cov-report=term-missing
 
 # Un seul fichier
 pytest tests/test_engine.py -v
+
+# Via Makefile
+make test
 ```
 
-**Statut actuel : 88 passed, 0 skipped (ReportLab installé)**
+**Statut actuel : 148 passed, 0 failed**
+
+### Répartition des tests
+
+| Fichier | Tests | Couverture |
+|---|---|---|
+| `test_engine.py` | 88 | Extraction, regex, scoring, SBAr, NL |
+| `test_phase2.py` | 27 | Scoring, cross-ref, voie médicamenteuse, NL |
+| `test_audio_relay.py` | 27 | Relay HTTP, POST, polling, timeout |
+| `test_database.py` | 4 | CRUD, brouillons, profils |
+| `test_nl_support.py` | 2 | Support néerlandais |
 
 ---
 
@@ -148,6 +155,7 @@ pytest tests/test_engine.py -v
 - ✅ **100% local** — Aucune donnée ne quitte la machine
 - ✅ **SQLite** — Base de données locale, pas de serveur
 - ✅ **Minimisation** — Seules les données cliniques nécessaires sont stockées
+- ✅ **Audit trail** — Logging structuré des actions infirmières (Phase 3)
 - 🔜 **Chiffrement** — Phase 2 (chiffrement au repos)
 - 🔜 **eHealth** — Intégration SumEHR (Phase 3)
 
@@ -168,9 +176,10 @@ pytest tests/test_engine.py -v
 | Phase | Contenu | Statut |
 |---|---|---|
 | **1.0** | MVP : dictée → rapport structuré, SQLite, PDF | ✅ |
-| **1.5** | Whisper + LLM local, multi-langue FR/NL | 🔄 |
-| **2.0** | Authentification, chiffrement, multi-poste | 🔜 |
-| **3.0** | Intégration eHealth/SumEHR, FHIR/HL7 | 🔜 |
+| **1.5** | Whisper local, multi-langue FR/NL, widget audio temps réel | ✅ |
+| **2.0** | Scoring complétude, cross-ref, NL complet, tests renforcés | ✅ |
+| **3.0** | Production : CI, logging, E2E, Makefile, Docker | 🔄 En cours |
+| **4.0** | Intégration eHealth/SumEHR, FHIR/HL7, LLM local | 🔜 |
 
 ---
 
@@ -180,4 +189,4 @@ MIT — voir [LICENSE](LICENSE)
 
 ---
 
-*NurseLog AI v0.2 — Prototype MVP | Belgium Edition | © 2025*
+*NurseLog AI v0.3 — Production Readiness | Belgium Edition | © 2025*

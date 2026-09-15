@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 import streamlit as st
 from nurselog_engine import NurseLogEngine, TranscriptionError
 from templates import RAPPORT_TEMPLATE
+from streaming_components import afficher_module_micro
 from database import (
     sauvegarder_rapport,
     recuperer_historique,
@@ -121,6 +122,8 @@ if 'rapport_origin_page' not in st.session_state:
     st.session_state.rapport_origin_page = None
 if 'dictee_draft' not in st.session_state:
     st.session_state.dictee_draft = ""
+if 'streaming_transcript' not in st.session_state:
+    st.session_state.streaming_transcript = ""
 
 # ============ INITIALISATION ENGINE ============
 engine = NurseLogEngine()
@@ -348,6 +351,10 @@ if page == "🎙️ Dictée Rapide":
         
         # Option pour l'enregistrement vocal
         st.markdown("### 🎙️ Enregistrement vocal")
+        st.markdown("**🎤 Dictée directe (micro navigateur)**")
+        afficher_module_micro(dictée)
+        st.markdown("\n---\n")
+        st.markdown("**📁 Ou upload d'un fichier audio**")
         _afficher_module_voix(dictée)
         
         st.markdown("### 🎯 Type de rapport")
@@ -929,7 +936,27 @@ if st.session_state.rapport and st.session_state.rapport_origin_page == page:
     if rapport.get('medicaments'):
         st.markdown("### 💊 Médicaments")
         for med in rapport['medicaments']:
-            st.write(f"  • {med.get('nom', 'N/A')} — {med.get('dose', '')} {med.get('unite', '')}")
+            voie = f" ({med['voie']})" if med.get('voie') else ""
+            st.write(f"  • {med.get('nom', 'N/A')} — {med.get('dose', '')} {med.get('unite', '')}{voie}")
+    
+    st.divider()
+    
+    # ============ SCORE DE COMPLÉTUDE ============
+    score_data = engine.score_completude(rapport)
+    st.markdown("### 📊 Complétude du rapport")
+    
+    if score_data["complet"]:
+        st.success(f"✅ Rapport complet — Score : {score_data['score']}%")
+    elif score_data["partiel"]:
+        st.warning(f"⚠️ Rapport partiel — Score : {score_data['score']}%")
+    else:
+        st.error(f"❌ Rapport incomplet — Score : {score_data['score']}%")
+    
+    # Détails des critères
+    for critere in score_data["details"]:
+        icone = "✅" if critere["ok"] else "❌"
+        poids = f"({critere['poids']}%)"
+        st.write(f"  {icone} {critere['criter']} {poids} — {critere['note']}")
     
     st.divider()
     

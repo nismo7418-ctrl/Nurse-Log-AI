@@ -143,6 +143,15 @@ class AudioRelay:
     def url(self) -> str:
         return f"http://{self._host}:{self._port}"
 
+    @property
+    def is_alive(self) -> bool:
+        """Vérifie que le thread HTTP est toujours actif.
+
+        Permet à l'application de détecter un crash silencieux du relay
+        (OOM, port fermé, etc.) et d'afficher un message clair.
+        """
+        return self._thread is not None and self._thread.is_alive()
+
     def get_latest_recording(self) -> Optional[Dict[str, Any]]:
         """Renvoie le dernier enregistrement reçu, ou ``None``.
 

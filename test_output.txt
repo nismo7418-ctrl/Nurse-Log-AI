@@ -1,0 +1,2 @@
+Valide: False
+  - 🔴 SpO2 94% — aucune oxygénothérapie ni alerte médecin documentée. Vérifier la prise en charge.

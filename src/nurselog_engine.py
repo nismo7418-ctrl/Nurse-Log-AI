@@ -81,7 +81,7 @@ class NurseLogEngine:
             ),
             "temperature": re.compile(
                 r'(?:température|T°|fièvre|temperatuur)\s*(?:de\s*)?'
-                r'(?:=\s*|:\s*)?([\d.]+)\s*(?:°C|degrees)?',
+                r'(?:=\s*|:\s*)?(\d+(?:\.\d+)?)\s*(?:°C|degrees)?',
                 re.IGNORECASE
             ),
             "spo2": re.compile(
@@ -95,7 +95,7 @@ class NurseLogEngine:
             ),
             "glycemie": re.compile(
                 r'(?:glycémie|glycémie\s*capillaire|bloedsuiker)\s*(?:=\s*|:\s*)?'
-                r'([\d.]+)\s*(?:g/L|mmol/L)?',
+                r'(\d+(?:\.\d+)?)\s*(?:g/L|mmol/L)?',
                 re.IGNORECASE
             ),
             "respiration": re.compile(
@@ -403,6 +403,33 @@ class NurseLogEngine:
             ("suigen", "Aspiration réalisée (suigen)"),
             ("hygiëne", "Soins d'hygiène réalisés (hygiëne)"),
             ("bloedsuiker", "Glycémie mesurée (bloedsuiker)"),
+            ("wondverpleging", "Pansement / soins de plaie (wondverpleging)"),
+            ("wondafdekking", "Changement de pansement (wondafdekking)"),
+            ("inwendig", "Injection IM réalisée (inwendig)"),
+            ("onderhuid", "Injection SC réalisée (onderhuid)"),
+            ("infuus", "Perfusion en cours (infuus)"),
+            ("catheter", "Cathéter vérifié (catheter)"),
+            ("cathéter", "Cathéter vérifié"),
+            ("sonde", "Sonde vérifiée / entretenue"),
+            ("aspiratie", "Aspiration réalisée (aspiratie)"),
+            ("herpositioneren", "Repositionnement effectué (herpositioneren)"),
+            ("mobilisatie", "Mobilisation du patient (mobilisatie)"),
+            ("persoonlijke verzorging", "Soins d'hygiène réalisés (persoonlijke verzorging)"),
+            ("hygiëne", "Soins d'hygiène réalisés (hygiëne)"),
+            ("voeding", "Nutrition / hydratation évaluée (voeding)"),
+            ("hydratatie", "Hydratation évaluée (hydratatie)"),
+            ("pijnmeting", "Évaluation douleur réalisée (pijnmeting)"),
+            ("pijn", "Évaluation douleur (pijn)"),
+            ("bloeddruk", "Tension artérielle mesurée (bloeddruk)"),
+            ("hartslag", "Fréquence cardiaque mesurée (hartslag)"),
+            ("ademhaling", "Fréquence respiratoire mesurée (ademhaling)"),
+            ("temperatuur", "Température mesurée (temperatuur)"),
+            ("zuurstof", "Oxygénation / SpO2 vérifiée (zuurstof)"),
+            ("oxygen", "Oxygénation / SpO2 vérifiée (oxygen)"),
+            ("wond", "Soins de plaie (wond)"),
+            ("escare", "Soins escarre réalisés (escare)"),
+            ("decubitus", "Soins escarre réalisés (decubitus)"),
+            ("wond", "Soins de plaie (wond)"),
         ]
 
         # Tracker des motifs déjà détectés pour éviter doublons
@@ -1006,6 +1033,32 @@ class NurseLogEngine:
             ("arts informeren", "📞 Médecin à alerter"),
             ("spoed", "🚨 Situation urgente"),
             ("bloeding", "⚠️ Saignement (bloeding)"),
+            ("valrisico", "⚠️ Risque de chute — précautions anti-chute en place"),
+            ("val", "⚠️ Chute signalée / risque de chute (val)"),
+            ("allergie", "⚠️ Allergie signalée — vérifier protocole"),
+            ("allergie", "⚠️ Allergie signalée — vérifier protocole (allergie)"),
+            ("isolatie", "⚠️ Patient en isolement (isolatie)"),
+            ("dwang", "⚠️ Contrainte physique — vérifier légalité (dwang)"),
+            ("eind van leven", "🕊️ Fin de vie — protocole palliatif"),
+            ("palliatieve zorg", "🕊️ Soins palliatifs (palliatieve zorg)"),
+            ("spoed", "🚨 Situation urgente (spoed)"),
+            ("nood", "🚨 Situation urgente (nood)"),
+            ("arts informeren", "📞 Médecin à alerter"),
+            ("arts verwittigen", "📞 Médecin à alerter (arts verwittigen)"),
+            ("arts gebeld", "📞 Médecin notifié (arts gebeld)"),
+            ("verergering", "⚠️ Aggravation de l'état (verergering)"),
+            ("verslechtering", "⚠️ Dégradation de l'état (verslechtering)"),
+            ("koorts", "⚠️ Fièvre — surveillance accrue (koorts)"),
+            ("pijn", "⚠️ Douleur — évaluation requise (pijn)"),
+            ("agressie", "⚠️ Agitation du patient (agressie)"),
+            ("verwardheid", "⚠️ Confusion / délire (verwardheid)"),
+            ("ademnood", "🚨 Détresse respiratoire (ademnood)"),
+            ("hypoxie", "⚠️ Hypoxémie — oxygène requis"),
+            ("oedeem", "⚠️ Œdème — surveillance"),
+            ("incontinentie", "⚠️ Incontinence — soins adaptés"),
+            ("diabetes", "⚠️ Diabétique — surveillance glycémie"),
+            ("anticoagulans", "⚠️ Anticoagulant — risque hémorragique"),
+            ("anticoagulant", "⚠️ Anticoagulant — risque hémorragique"),
         ]
 
         for motif, alerte in alertes_mapping:
@@ -1070,7 +1123,16 @@ class NurseLogEngine:
             r'prochain', r'prochaine', r'dans\s+\d+', r'à\s+refaire', r'a\s+refaire',
             r'répéter', r'répeter', r'surveiller', r'veiller', r'prévoir', r'prevoir',
             r'planifier', r'demain', r'quart\s+suivant', r'à\s+faire', r'a\s+faire',
-            r'objectif', r'recommand', r'conseil'
+            r'objectif', r'recommand', r'conseil',
+            # ---- Néerlandais ----
+            r'volgende', r'morgen', r'herbeoordeling', r'controle',
+            r'controleer', r'opnieuw', r'herhaal', r'waakzaam',
+            r'plannen', r'ter\s+plekke', r'afspraken', r'afspraken\s+maken',
+            r'volgend\s+quart', r'volgende\s+24', r'volgende\s+48',
+            # ---- Français supplémentaire ----
+            r'réévaluer', r'reevaluer', r'réévaluation', r'reevaluation',
+            r'contrôler', r'controle', r'vérifier\s+au', r'verifier\s+au',
+            r'noter\s+au', r'inscrire\s+au', r'consigner',
         ]
         pattern_plan = re.compile(
             r'(?:' + '|'.join(mots_cles_plan) + r')',
@@ -1110,7 +1172,7 @@ class NurseLogEngine:
                 if not si_deja_present and plan_action not in plan:
                     plan.append(plan_action)
 
-        if not plan:
+        if not plan and texte.strip():
             plan.append("📌 Surveillance standard au quart")
             plan.append("📌 Réévaluation selon protocole")
 
@@ -1175,33 +1237,135 @@ class NurseLogEngine:
     # EXTRACTION MÉDICAMENTS
     # ========================================================================
 
+    # Voies d'administration reconnues (FR + NL + abréviations)
+    VOIES_ADMINISTRATION = {
+        "iv": ["iv", "i.v.", "intraveineuse", "intraveineux", "voie veineuse", "intra-veineuse", "i.v."],
+        "im": ["im", "i.m.", "intramusculaire", "intra-musculaire"],
+        "sc": ["sc", "sq", "s.c.", "s.q.", "sous-cutanée", "sous-cutane", "sous-cutanée", "subcutane"],
+        "po": ["po", "per os", "oral", "orale", "per os", "oraal"],
+        "sl": ["sl", "sublinguale", "sublingual"],
+        "top": ["top", "topique", "topical", "local"],
+        "inhal": ["inhal", "inhalation", "inhalé", "inhele"],
+        "rectal": ["rectal", "rectale", "suppositoire"],
+        "oculaire": ["oculaire", "oculaire", "collyre"],
+        "auriculaire": ["auriculaire", "oreille"],
+    }
+
+    def _detecter_voie(self, contexte: str) -> str:
+        """Détecte la voie d'administration dans le contexte autour du médicament."""
+        contexte_lower = contexte.lower()
+        for voie, variantes in self.VOIES_ADMINISTRATION.items():
+            for variante in variantes:
+                if variante in contexte_lower:
+                    return voie.upper()
+        return ""
+
     def _extraire_medicaments(self, texte: str) -> List[Dict]:
-        """Tente d'extraire TOUTES les informations sur les médicaments (findall)."""
+        """
+        Extrait TOUTES les informations sur les médicaments.
+        
+        Gère plusieurs patterns :
+          - "paracétamol 1g IV" (nom + dose + voie)
+          - "1g de paracétamol" (dose + nom)
+          - "paracétamol, 1000mg" (virgule)
+          - "administration de morphine 2mg SC" (préposition)
+          - "paracétamol 1000 mg" (espace entre dose et unité)
+          - "insuline 10 UI" (unités internationales)
+        """
         medicaments = []
         
-        # Trouver TOUS les médicaments avec dose (pas seulement le premier)
+        # --- Pattern 1 : nom + dose + unité (regex existante) ---
         for match in self.regex_medicament.finditer(texte):
             nom = match.group(1).strip()
             dose = match.group(2)
             unite = match.group(3)
-            # Éviter les doublons
+            # Extraire la voie dans le contexte (±30 caractères après)
+            contexte_voie = texte[match.end():match.end()+40]
+            voie = self._detecter_voie(contexte_voie)
             if not any(m["nom"].lower() == nom.lower() for m in medicaments):
                 medicaments.append({
                     "nom": nom,
                     "dose": dose,
-                    "unite": unite
+                    "unite": unite,
+                    "voie": voie,
                 })
 
-        # Recherche générique de noms de médicaments courants (FR + NL).
-        # Liste partagée avec le priming de la transcription (MEDICAMENTS_COURANTS),
-        # organisée par classe thérapeutique, variantes orthographiques FR/NL incluses.
+        # --- Pattern 2 : dose + "de" + nom (ex: "1g de paracétamol") ---
+        regex_dose_nom = re.compile(
+            r'(\d+(?:\.\d+)?)\s*(mg|ml|g|UI|µg|microg)\s*(?:de|d\'?)\s+'
+            r'([A-Za-zàâéèêîôûùçñ]+(?:\s+[A-Za-zàâéèêîôûùçñ]+)*)',
+            re.IGNORECASE
+        )
+        for match in regex_dose_nom.finditer(texte):
+            dose = match.group(1)
+            unite = match.group(2)
+            nom = match.group(3).strip()
+            contexte_voie = texte[match.end():match.end()+40]
+            voie = self._detecter_voie(contexte_voie)
+            if not any(m["nom"].lower() == nom.lower() for m in medicaments):
+                medicaments.append({
+                    "nom": nom,
+                    "dose": dose,
+                    "unite": unite,
+                    "voie": voie,
+                })
+
+        # --- Pattern 3 : nom + virgule + dose (ex: "paracétamol, 1g") ---
+        regex_nom_comma_dose = re.compile(
+            r'([A-Za-zàâéèêîôûùçñ]+(?:\s+[A-Za-zàâéèêîôûùçñ]+)*)\s*[,;]\s*'
+            r'(\d+(?:\.\d+)?)\s*(mg|ml|g|UI|µg|microg)',
+            re.IGNORECASE
+        )
+        for match in regex_nom_comma_dose.finditer(texte):
+            nom = match.group(1).strip()
+            dose = match.group(2)
+            unite = match.group(3)
+            contexte_voie = texte[match.end():match.end()+40]
+            voie = self._detecter_voie(contexte_voie)
+            if not any(m["nom"].lower() == nom.lower() for m in medicaments):
+                medicaments.append({
+                    "nom": nom,
+                    "dose": dose,
+                    "unite": unite,
+                    "voie": voie,
+                })
+
+        # --- Pattern 4 : nom + dose sans espace (ex: "paracétamol1000mg") ---
+        regex_nom_dose_colle = re.compile(
+            r'([A-Za-zàâéèêîôûùçñ]+)\s*(\d+(?:\.\d+)?)\s*(mg|ml|g|UI|µg|microg)',
+            re.IGNORECASE
+        )
+        for match in regex_nom_dose_colle.finditer(texte):
+            nom = match.group(1).strip()
+            dose = match.group(2)
+            unite = match.group(3)
+            contexte_voie = texte[match.end():match.end()+40]
+            voie = self._detecter_voie(contexte_voie)
+            if not any(m["nom"].lower() == nom.lower() for m in medicaments):
+                medicaments.append({
+                    "nom": nom,
+                    "dose": dose,
+                    "unite": unite,
+                    "voie": voie,
+                })
+
+        # --- Recherche générique de noms de médicaments courants (FR + NL) ---
         meds_courants = list(self.MEDICAMENTS_COURANTS)
         
         texte_lower = texte.lower()
         for med in meds_courants:
             if med in texte_lower:
                 if not any(m["nom"].lower() == med.lower() for m in medicaments):
-                    medicaments.append({"nom": med.capitalize(), "dose": "N/A", "unite": ""})
+                    # Chercher la voie dans les 60 caractères autour
+                    idx = texte_lower.find(med)
+                    contexte = texte[max(0, idx-20):idx+len(med)+40]
+                    voie = self._detecter_voie(contexte)
+                    medicaments.append({
+                        "nom": med.capitalize(),
+                        "dose": "N/A",
+                        "unite": "",
+                        "voie": voie,
+                    })
 
         return medicaments
 
@@ -1210,70 +1374,215 @@ class NurseLogEngine:
     # ========================================================================
 
     def _generer_transmissions(self, texte: str, rapport: Dict) -> List[Dict]:
-        """Génère une transmission structurée en format SBAr."""
+        """
+        Génère une transmission structurée en format SBAr enrichi.
+        
+        Le SBAr (Situation-Background-Assessment-Recommendation) est le
+        standard de communication clinique en Belgique. Cette version
+        inclut les données cliniques réelles extraites du rapport.
+        """
         transmission = {
             "format": "SBAr",
             "S_Situation": self._resumer_situation(rapport),
-            "B_Contexte": self._resumer_contexte(texte),
+            "B_Contexte": self._resumer_contexte(texte, rapport),
             "A_Appreciation": self._resumer_appreciation(rapport),
-            "R_Recommandation": "\n".join(rapport.get("plan", [])),
+            "R_Recommandation": self._resumer_recommandation(rapport),
         }
         return [transmission]
 
     def _resumer_situation(self, rapport: Dict) -> str:
-        """Résume la situation actuelle du patient."""
+        """Résume la situation actuelle du patient avec les données clés."""
         patient = rapport.get("patient", {})
         nom = patient.get("prenom", "") + " " + patient.get("nom", "")
         chambre = patient.get("chambre", "")
         
         situation = f"Patient {nom}, {chambre}."
         
+        # État général
         etat = rapport.get("evaluation", {}).get("État général", "")
         if etat:
             situation += f" {etat}"
         
+        # Douleur (donnée critique pour la transmission)
+        douleur = rapport.get("evaluation", {}).get("Confort douleur", "")
+        if douleur:
+            situation += f" {douleur}."
+        
+        # Alertes critiques (max 3 pour rester concis)
         alertes = rapport.get("alertes", [])
         if alertes:
-            situation += f" Alertes: {len(alertes)} point(s) de vigilance."
+            critiques = [a for a in alertes if "🚨" in a or "⚠️" in a][:3]
+            if critiques:
+                situation += f" Points de vigilance : {'; '.join(critiques)}."
+            else:
+                situation += f" {len(alertes)} point(s) de vigilance."
         
         return situation
 
-    def _resumer_contexte(self, texte: str) -> str:
-        """Résume le contexte clinique."""
-        # Extraire les signes vitaux comme contexte
+    def _resumer_contexte(self, texte: str, rapport: Dict) -> str:
+        """Résume le contexte clinique avec les signes vitaux et traitements."""
         contexte_parts = []
         
-        match_ta = self.regex_signes_vitaux["tension"].search(texte)
-        if match_ta:
-            contexte_parts.append(f"TA: {match_ta.group(1)}/{match_ta.group(2)}")
+        # Signes vitaux (extraits du rapport, plus fiables que re-parsing)
+        sv = rapport.get("evaluation", {}).get("Signes vitaux", {})
+        if sv:
+            for cle, valeur in sv.items():
+                if cle in ("Tension artérielle", "Pouls", "Température", "SpO2", "Glycémie", "Fréquence respiratoire"):
+                    contexte_parts.append(f"{cle}: {valeur}")
         
-        match_pouls = self.regex_signes_vitaux["pouls"].search(texte)
-        if match_pouls:
-            contexte_parts.append(f"FC: {match_pouls.group(1)} bpm")
+        # Si pas de SV dans le rapport, extraire du texte (fallback)
+        if not contexte_parts:
+            match_ta = self.regex_signes_vitaux["tension"].search(texte)
+            if match_ta:
+                contexte_parts.append(f"TA: {match_ta.group(1)}/{match_ta.group(2)}")
+            match_pouls = self.regex_signes_vitaux["pouls"].search(texte)
+            if match_pouls:
+                contexte_parts.append(f"FC: {match_pouls.group(1)} bpm")
+            match_temp = self.regex_signes_vitaux["temperature"].search(texte)
+            if match_temp:
+                contexte_parts.append(f"T°: {match_temp.group(1)}°C")
+            match_spo2 = self.regex_signes_vitaux["spo2"].search(texte)
+            if match_spo2:
+                contexte_parts.append(f"SpO2: {match_spo2.group(1)}%")
         
-        match_temp = self.regex_signes_vitaux["temperature"].search(texte)
-        if match_temp:
-            contexte_parts.append(f"T°: {match_temp.group(1)}°C")
+        # Médicaments administrés (contexte important)
+        medicaments = rapport.get("medicaments", [])
+        if medicaments:
+            meds_str = ", ".join(
+                f"{m['nom']} {m.get('dose', '')} {m.get('unite', '')}".strip()
+                for m in medicaments[:4]
+            )
+            contexte_parts.append(f"Traitements: {meds_str}")
         
-        match_spo2 = self.regex_signes_vitaux["spo2"].search(texte)
-        if match_spo2:
-            contexte_parts.append(f"SpO2: {match_spo2.group(1)}%")
+        # Nutrition / hydratation
+        nutrition = rapport.get("evaluation", {}).get("Nutrition hydratation", "")
+        if nutrition:
+            contexte_parts.append(nutrition)
         
-        return ", ".join(contexte_parts) if contexte_parts else "Voir rapport complet."
+        return "; ".join(contexte_parts) if contexte_parts else "Voir rapport complet."
 
     def _resumer_appreciation(self, rapport: Dict) -> str:
-        """Résume l'appréciation clinique."""
+        """Résume l'appréciation clinique avec les soins et alertes spécifiques."""
         soins = rapport.get("soins", [])
         alertes = rapport.get("alertes", [])
         
-        appreciation = f"{len(soins)} soin(s) réalisé(s)."
+        appreciation_parts = []
         
-        if alertes:
-            appreciation += f" {len(alertes)} alerte(s) à surveiller."
+        # Soins réalisés (max 4 pour rester concis)
+        if soins:
+            soins_str = "; ".join(soins[:4])
+            appreciation_parts.append(f"Soins: {soins_str}.")
         else:
-            appreciation += " Aucune alerte majeure."
+            appreciation_parts.append("Aucun soin spécifique documenté.")
         
-        return appreciation
+        # Alertes spécifiques
+        if alertes:
+            alertes_str = "; ".join(alertes[:3])
+            appreciation_parts.append(f"Vigilance: {alertes_str}.")
+        else:
+            appreciation_parts.append("Aucune alerte majeure.")
+        
+        # État de douleur (si présent)
+        douleur = rapport.get("evaluation", {}).get("Confort douleur", "")
+        if douleur and ("⚠️" in douleur or "sévère" in douleur.lower()):
+            appreciation_parts.append(f"Douleur significative: {douleur}.")
+        
+        return " ".join(appreciation_parts)
+
+    def _resumer_recommandation(self, rapport: Dict) -> str:
+        """Résume les recommandations et actions à venir."""
+        plan = rapport.get("plan", [])
+        if plan:
+            return "\n".join(f"• {p}" for p in plan[:6])
+        return "Surveillance standard. Réévaluation selon protocole."
+
+    # ========================================================================
+    # SCORE DE COMPLÉTUDE
+    # ========================================================================
+
+    def score_completude(self, rapport: Dict) -> Dict:
+        """
+        Calcule un score de complétude du rapport (0-100%).
+        
+        Évalue :
+          - Identification patient (nom, chambre)
+          - Signes vitaux (au moins 1 mesuré)
+          - Soins documentés
+          - Plan de soins
+          - Alertes (si pertinentes)
+          - Transmission SBAr
+        
+        Returns:
+            {"score": int, "details": [{"criter": str, "ok": bool, "poids": int, "note": str}]}
+        """
+        criteres = []
+        
+        # 1. Identification patient (poids 20)
+        patient = rapport.get("patient", {})
+        patient_ok = bool(patient.get("nom") and patient.get("chambre"))
+        criteres.append({
+            "criter": "Identification patient",
+            "ok": patient_ok,
+            "poids": 20,
+            "note": "Nom et chambre renseignés" if patient_ok else "Nom ou chambre manquant",
+        })
+        
+        # 2. Signes vitaux (poids 25)
+        sv = rapport.get("evaluation", {}).get("Signes vitaux", {})
+        sv_ok = len(sv) >= 1
+        sv_count = len(sv)
+        criteres.append({
+            "criter": "Signes vitaux",
+            "ok": sv_ok,
+            "poids": 25,
+            "note": f"{sv_count} paramètre(s) mesuré(s)" if sv_ok else "Aucun signe vital enregistré",
+        })
+        
+        # 3. Soins documentés (poids 25)
+        soins = rapport.get("soins", [])
+        soins_ok = len(soins) >= 1
+        criteres.append({
+            "criter": "Soins documentés",
+            "ok": soins_ok,
+            "poids": 25,
+            "note": f"{len(soins)} soin(s)" if soins_ok else "Aucun soin documenté",
+        })
+        
+        # 4. Plan de soins (poids 15)
+        plan = rapport.get("plan", [])
+        plan_ok = len(plan) >= 1
+        criteres.append({
+            "criter": "Plan de soins",
+            "ok": plan_ok,
+            "poids": 15,
+            "note": f"{len(plan)} action(s) prévue(s)" if plan_ok else "Aucun plan défini",
+        })
+        
+        # 5. Transmission SBAr (poids 15)
+        transmissions = rapport.get("transmissions", [])
+        sbar_ok = len(transmissions) >= 1 and all(
+            t.get("S_Situation") and t.get("A_Appreciation")
+            for t in transmissions
+        )
+        criteres.append({
+            "criter": "Transmission SBAr",
+            "ok": sbar_ok,
+            "poids": 15,
+            "note": "SBAr complet" if sbar_ok else "SBAr incomplet ou absent",
+        })
+        
+        # Calcul du score pondéré
+        score_total = sum(c["poids"] for c in criteres if c["ok"])
+        score_max = sum(c["poids"] for c in criteres)
+        score = round(score_total / score_max * 100) if score_max > 0 else 0
+        
+        return {
+            "score": score,
+            "details": criteres,
+            "complet": score >= 80,
+            "partiel": 40 <= score < 80,
+            "incomplet": score < 40,
+        }
 
     # ========================================================================
     # UTILITAIRES
@@ -1326,6 +1635,14 @@ class NurseLogEngine:
             lignes.append("--- PLAN DE SOINS ---")
             for action in rapport["plan"]:
                 lignes.append(f"  📌 {action}")
+            lignes.append("")
+        
+        # Médicaments
+        if rapport.get("medicaments"):
+            lignes.append("--- MÉDICAMENTS ---")
+            for med in rapport["medicaments"]:
+                voie = f" ({med['voie']})" if med.get('voie') else ""
+                lignes.append(f"  💊 {med.get('nom', 'N/A')} — {med.get('dose', '')} {med.get('unite', '')}{voie}")
             lignes.append("")
         
         # Transmission SBAr
@@ -1411,29 +1728,135 @@ class NurseLogEngine:
 
     def valider_rapport(self, rapport: Dict) -> tuple[bool, List[str]]:
         """
-        Valide la complétude du rapport.
-        Retourne (est_valide, liste_des_warnings).
+        Valide la complétude du rapport avec vérifications croisées cliniques.
+        
+        Vérifications de base :
+          - Identification patient
+          - Signes vitaux
+          - Soins documentés
+          - Plan de soins
+        
+        Vérifications croisées (logique clinique) :
+          - Douleur ≥ 7 → traitement antalgique documenté ?
+          - Fièvre ≥ 38.5 → antipyrétique ou surveillance ?
+          - SpO2 < 95 → oxygénothérapie ou alerte médecin ?
+          - Hypotension → surveillance renforcée ?
+          - Hypoglycémie → traitement ou surveillance ?
+        
+        Returns:
+            (est_valide, liste_des_warnings)
         """
         warnings = []
         
-        # Vérifier les infos patient
+        # --- Vérifications de base ---
         patient = rapport.get("patient", {})
         if not patient.get("nom"):
             warnings.append("⚠️ Nom du patient manquant")
         if not patient.get("prenom"):
             warnings.append("⚠️ Prénom du patient manquant")
         
-        # Vérifier les signes vitaux
         sv = rapport.get("evaluation", {}).get("Signes vitaux", {})
         if not sv:
             warnings.append("⚠️ Aucun signe vital enregistré")
         
-        # Vérifier les soins
         if not rapport.get("soins"):
             warnings.append("⚠️ Aucun soin documenté")
         
-        # Vérifier le plan
         if not rapport.get("plan"):
             warnings.append("⚠️ Aucun plan de soins défini")
+        
+        # --- Vérifications croisées cliniques ---
+        texte_complet = " ".join([
+            " ".join(rapport.get("soins", [])),
+            " ".join(rapport.get("alertes", [])),
+            " ".join(rapport.get("plan", [])),
+            str(rapport.get("evaluation", {}).get("Confort douleur", "")),
+            str(rapport.get("evaluation", {}).get("État général", "")),
+        ]).lower()
+        
+        medicaments = rapport.get("medicaments", [])
+        noms_meds = " ".join(m.get("nom", "").lower() for m in medicaments)
+        
+        # 1. Douleur sévère (≥ 7) → traitement antalgique ?
+        douleur_val = rapport.get("evaluation", {}).get("Confort douleur", "")
+        match_douleur = re.search(r'(\d{1,2})/10', douleur_val)
+        if match_douleur:
+            douleur_score = int(match_douleur.group(1))
+            if douleur_score >= 7:
+                antalgiques = ["paracétamol", "ibuprofène", "morphine", "fentanyl",
+                              "tramadol", "codeïne", "oxycodone", "buprenorphine",
+                              "diclofénac", "kétoprofène", "spasfon"]
+                a_ete_traite = any(ant in noms_meds or ant in texte_complet for ant in antalgiques)
+                if not a_ete_traite:
+                    warnings.append(
+                        f"🔴 Douleur {douleur_score}/10 — aucun traitement antalgique documenté. "
+                        "Vérifier si un traitement a été administré ou si le médecin a été informé."
+                    )
+        
+        # 2. Fièvre élevée (≥ 38.5) → antipyrétique ou surveillance ?
+        temp_val = sv.get("Température", "")
+        match_temp = re.search(r'(\d+(?:\.\d+)?)', temp_val)
+        if match_temp:
+            temp = float(match_temp.group(1))
+            if temp >= 38.5:
+                antipyrétiques = ["paracétamol", "ibuprofène", "aspirine"]
+                a_ete_traite = any(ant in noms_meds or ant in texte_complet for ant in antipyrétiques)
+                surveillance_specifique = any(
+                    s in texte_complet for s in
+                    ["surveillance renforcée", "surveillance rapprochée", "surveiller de près",
+                     "surveillance toutes les", "surveillance stricte", "surveillance active"]
+                )
+                if not a_ete_traite and not surveillance_specifique:
+                    warnings.append(
+                        f"🔴 Fièvre {temp}°C — aucun antipyrétique ni surveillance documentée. "
+                        "Vérifier le protocole."
+                    )
+        
+        # 3. SpO2 < 95% → oxygénothérapie ou alerte ?
+        spo2_val = sv.get("SpO2", "")
+        match_spo2 = re.search(r'(\d{2,3})', spo2_val)
+        if match_spo2:
+            spo2 = int(match_spo2.group(1))
+            if spo2 < 95:
+                oxygene = any(
+                    s in texte_complet for s in
+                    ["oxygène", "oxygene", "oxygen", "oxygénothérapie", "oxygenotherapie",
+                     "oxygenation", "o2 therapy", "o2 therapi", "oxygène administré", "o2 administré"]
+                )
+                medecin = "médecin" in texte_complet or "medecin" in texte_complet or "alerter" in texte_complet
+                if not oxygene and not medecin:
+                    warnings.append(
+                        f"🔴 SpO2 {spo2}% — aucune oxygénothérapie ni alerte médecin documentée. "
+                        "Vérifier la prise en charge."
+                    )
+        
+        # 4. Hypotension (TA < 90/60) → surveillance renforcée ?
+        ta_val = sv.get("Tension artérielle", "")
+        match_ta = re.search(r'(\d{2,3})/(\d{2,3})', ta_val)
+        if match_ta:
+            sys = int(match_ta.group(1))
+            dias = int(match_ta.group(2))
+            if sys < 90 or dias < 60:
+                surveillance = "surveillance" in texte_complet or "surveiller" in texte_complet
+                medecin = "médecin" in texte_complet or "medecin" in texte_complet
+                if not surveillance and not medecin:
+                    warnings.append(
+                        f"🔴 Hypotension ({sys}/{dias}) — aucune surveillance renforcée ni alerte médecin. "
+                        "Vérifier la prise en charge."
+                    )
+        
+        # 5. Hypoglycémie (< 0.6 g/L) → traitement ?
+        glyc_val = sv.get("Glycémie", "")
+        match_glyc = re.search(r'([\d.]+)', glyc_val)
+        if match_glyc:
+            glyc = float(match_glyc.group(1))
+            if glyc < 0.6:
+                traitement = "glucose" in texte_complet or "dextrose" in texte_complet or "sucre" in texte_complet
+                medecin = "médecin" in texte_complet or "medecin" in texte_complet
+                if not traitement and not medecin:
+                    warnings.append(
+                        f"🔴 Hypoglycémie ({glyc} g/L) — aucun traitement ni alerte médecin. "
+                        "Vérifier la prise en charge."
+                    )
         
         return (len(warnings) == 0, warnings)
