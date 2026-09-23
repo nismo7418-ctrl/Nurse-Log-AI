@@ -5,11 +5,17 @@ Stockage local des rapports de soins et des profils infirmiers.
 Conforme au principe de minimisation des données (RGPD).
 """
 
+import hashlib
+import hmac
 import json
+import os
 import sqlite3
 from pathlib import Path
 
-DATABASE_PATH = Path(__file__).parent / "nurselog.db"
+# Surchargeable par variable d'environnement (ex. Docker : /app/data/nurselog.db)
+DATABASE_PATH = Path(
+    os.environ.get("NURSELOG_DB_PATH", str(Path(__file__).parent / "nurselog.db"))
+)
 
 
 def _get_connection():
@@ -17,6 +23,8 @@ def _get_connection():
     conn = sqlite3.connect(str(DATABASE_PATH))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
+    # Évite « database is locked » si un autre processus (relais audio, export) écrit en parallèle
+    conn.execute("PRAGMA busy_timeout=5000")
     return conn
 
 
@@ -86,8 +94,91 @@ def initialiser_base():
         ON brouillons(infirmier_id, patient_nom)
     """)
 
+    # Migration : PIN de connexion / confirmation de signature (hashé, jamais en clair)
+    colonnes = {row[1] for row in cursor.execute("PRAGMA table_info(infirmiers)")}
+    if "pin_hash" not in colonnes:
+        cursor.execute("ALTER TABLE infirmiers ADD COLUMN pin_hash TEXT")
+
     conn.commit()
     conn.close()
+
+
+# ============================================================================
+# PIN par profil (PBKDF2-SHA256 + sel aléatoire, constant-time compare)
+# ============================================================================
+
+_PBKDF2_ITÉRATIONS = 200_000
+
+
+def _hacher_pin(pin: str, sel_hex: str) -> str:
+    return hashlib.pbkdf2_hmac(
+        "sha256", pin.encode("utf-8"), bytes.fromhex(sel_hex), _PBKDF2_ITÉRATIONS
+    ).hex()
+
+
+def _hasher_pin(pin: str) -> str:
+    sel = os.urandom(16).hex()
+    return f"{sel}${_hacher_pin(pin, sel)}"
+
+
+def _verifier_pin_hash(pin: str, hash_stocke: str | None) -> bool:
+    if not hash_stocke or "$" not in hash_stocke:
+        return False
+    sel_hex, hash_hex = hash_stocke.split("$", 1)
+    try:
+        return hmac.compare_digest(_hacher_pin(pin, sel_hex), hash_hex)
+    except (ValueError, TypeError):
+        return False
+
+
+def definir_pin(infirmier_id: int, pin: str) -> None:
+    """Définit (ou redéfinit) le PIN d'un profil infirmier."""
+    conn = _get_connection()
+    conn.execute(
+        "UPDATE infirmiers SET pin_hash = ? WHERE id = ?",
+        (_hasher_pin(pin), infirmier_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def verifier_pin(infirmier_id: int, pin: str) -> bool:
+    """Vérifie le PIN fourni contre le hash stocké (False si aucun PIN défini)."""
+    conn = _get_connection()
+    row = conn.execute(
+        "SELECT pin_hash FROM infirmiers WHERE id = ?", (infirmier_id,)
+    ).fetchone()
+    conn.close()
+    if row is None:
+        return False
+    return _verifier_pin_hash(pin, row["pin_hash"])
+
+
+def pin_defini(infirmier_id: int) -> bool:
+    """True si le profil a un PIN actif."""
+    conn = _get_connection()
+    row = conn.execute(
+        "SELECT pin_hash FROM infirmiers WHERE id = ?", (infirmier_id,)
+    ).fetchone()
+    conn.close()
+    return row is not None and row["pin_hash"] is not None
+
+
+def trouver_infirmier(numero: str) -> dict | None:
+    """Retourne {id, nom, pin_defini} pour un numéro d'identification."""
+    conn = _get_connection()
+    row = conn.execute(
+        "SELECT id, nom, pin_hash FROM infirmiers WHERE numero_identification = ?",
+        (numero,),
+    ).fetchone()
+    conn.close()
+    if row is None:
+        return None
+    return {
+        "id": row["id"],
+        "nom": row["nom"],
+        "pin_defini": row["pin_hash"] is not None,
+    }
 
 
 def sauvegarder_rapport(infirmier_id: int, rapport: dict) -> int:
@@ -145,6 +236,65 @@ def recuperer_historique(infirmier_id: int | None = None, limite: int = 50) -> l
             ORDER BY date_creation DESC
             LIMIT ?
         """, (limite,))
+
+    rapports = []
+    for row in cursor.fetchall():
+        rapport_data = json.loads(row["donnees_json"])
+        rapport_data["_db_id"] = row["id"]
+        rapport_data["_date_creation"] = row["date_creation"]
+        rapports.append(rapport_data)
+
+    conn.close()
+    return rapports
+
+
+def _like_escape(term: str) -> str:
+    """Échappe les caractères spéciaux LIKE (% _ \\) pour une recherche littérale."""
+    return (
+        term.replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+    )
+
+
+def rechercher_rapports(
+    infirmier_id: int | None = None,
+    nom: str | None = None,
+    date: str | None = None,
+    limite: int = 100,
+) -> list[dict]:
+    """
+    Recherche des rapports avec filtrage côté base (SQL).
+
+    - infirmier_id : restreint à ce profil (None = tous)
+    - nom          : sous-chaîne littérale dans nom/prénom patient (LIKE échappé)
+    - date         : correspondance exacte sur date_rapport (format YYYY-MM-DD)
+    - limite       : nombre maximum de rapports retournés
+
+    Remplace le filtrage côté client qui ne voyait que les `limite` premiers rapports.
+    """
+    conn = _get_connection()
+    cursor = conn.cursor()
+
+    conditions: list[str] = []
+    params: list = []
+
+    if infirmier_id:
+        conditions.append("infirmier_id = ?")
+        params.append(infirmier_id)
+    if nom:
+        like = f"%{_like_escape(nom.strip())}%"
+        conditions.append("(patient_nom LIKE ? ESCAPE '\\' OR patient_prenom LIKE ? ESCAPE '\\')")
+        params.extend([like, like])
+    if date:
+        conditions.append("date_rapport = ?")
+        params.append(date)
+
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    cursor.execute(
+        f"SELECT * FROM rapports {where} ORDER BY date_creation DESC LIMIT ?",
+        [*params, limite],
+    )
 
     rapports = []
     for row in cursor.fetchall():
@@ -284,6 +434,20 @@ def recuperer_brouillon(infirmier_id: int, patient_nom: str = "") -> dict | None
     }
 
 
+def recuperer_brouillon_cible(infirmier_id: int, patient_nom: str = "") -> dict | None:
+    """
+    Retourne le brouillon ciblé pour la page de dictée :
+    - si patient_nom est fourni, le brouillon de CE patient (isolation par patient) ;
+    - sinon le brouillon le plus récent du profil (comportement d'origine).
+    """
+    patient_nom = (patient_nom or "").strip()
+    brouillon = recuperer_brouillon(infirmier_id, patient_nom)
+    if brouillon is None and patient_nom:
+        # Pas encore de brouillon pour ce patient : revenir au plus récent
+        brouillon = recuperer_brouillon(infirmier_id)
+    return brouillon
+
+
 def recuperer_tous_brouillons(infirmier_id: int) -> list[dict]:
     """Récupère TOUS les brouillons d'un infirmier (multi-patients)."""
     conn = _get_connection()
@@ -336,17 +500,16 @@ def exporter_pdf_rapport(rapport: dict, chemin_fichier: str):
         if reportlab_spec is None:
             print("ReportLab non disponible. Impossible d'exporter en PDF.")
             return False
-        
-        from reportlab.lib.pagesizes import letter
-        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-        from reportlab.lib.units import inch
+
         from reportlab.lib import colors
-        
+        from reportlab.lib.pagesizes import letter
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
         # Créer le document PDF
         doc = SimpleDocTemplate(chemin_fichier, pagesize=letter)
         styles = getSampleStyleSheet()
-        
+
         # Style personnalisé pour les titres
         title_style = ParagraphStyle(
             'CustomTitle',
@@ -355,7 +518,7 @@ def exporter_pdf_rapport(rapport: dict, chemin_fichier: str):
             spaceAfter=12,
             alignment=1,  # Centré
         )
-        
+
         # Style pour les sections
         section_style = ParagraphStyle(
             'Section',
@@ -363,20 +526,20 @@ def exporter_pdf_rapport(rapport: dict, chemin_fichier: str):
             fontSize=14,
             spaceAfter=6,
         )
-        
+
         # Contenu du document
         story = []
-        
+
         # Titre principal
         story.append(Paragraph("Rapport de Soins Infirmier", title_style))
         story.append(Spacer(1, 12))
-        
+
         # Informations patient
         patient = rapport.get('patient', {})
         metadata = rapport.get('metadata', {})
-        
+
         story.append(Paragraph("Informations Patient", section_style))
-        
+
         # Tableau des informations patient
         patient_data = [
             ["Nom", patient.get('nom', 'N/A')],
@@ -386,7 +549,7 @@ def exporter_pdf_rapport(rapport: dict, chemin_fichier: str):
             ["Heure", metadata.get('heure', 'N/A')],
             ["Quart", metadata.get('quart', 'N/A')],
         ]
-        
+
         patient_table = Table(patient_data)
         patient_table.setStyle(TableStyle([
             ('GRID', (0, 0), (-1, -1), 1, colors.black),
@@ -395,21 +558,21 @@ def exporter_pdf_rapport(rapport: dict, chemin_fichier: str):
         ]))
         story.append(patient_table)
         story.append(Spacer(1, 12))
-        
+
         # Évaluation clinique
         if 'evaluation' in rapport:
             story.append(Paragraph("Évaluation Clinique", section_style))
             for key, value in rapport['evaluation'].items():
                 story.append(Paragraph(f"{key}: {value}", styles['Normal']))
             story.append(Spacer(1, 12))
-        
+
         # Soins réalisés
         if 'soins' in rapport:
             story.append(Paragraph("Soins Réalisés", section_style))
             for soin in rapport['soins']:
                 story.append(Paragraph(f"• {soin}", styles['Normal']))
             story.append(Spacer(1, 12))
-        
+
         # Alertes
         if 'alertes' in rapport and rapport['alertes']:
             story.append(Paragraph("Alertes", section_style))
@@ -419,28 +582,28 @@ def exporter_pdf_rapport(rapport: dict, chemin_fichier: str):
             story.append(Paragraph("Alertes", section_style))
             story.append(Paragraph("Aucune alerte", styles['Normal']))
         story.append(Spacer(1, 12))
-        
+
         # Plan de soins
         if 'plan' in rapport:
             story.append(Paragraph("Plan de Soins", section_style))
             for action in rapport['plan']:
                 story.append(Paragraph(f"📌 {action}", styles['Normal']))
             story.append(Spacer(1, 12))
-        
+
         # Codes NAA
         if 'codes_naa' in rapport and rapport['codes_naa']:
             story.append(Paragraph("Codes NAA (Facturation)", section_style))
             for code in rapport['codes_naa']:
                 code_text = f"Code: {code.get('code', 'N/A')} | {code.get('nom', '')} | Source: {code.get('source', 'N/A')}"
                 story.append(Paragraph(code_text, styles['Normal']))
-        
+
         # Signature
         story.append(Spacer(1, 24))
         story.append(Paragraph("Signature", section_style))
         story.append(Spacer(1, 12))
         story.append(Paragraph("Nom : _________________________", styles['Normal']))
         story.append(Paragraph("Date : _________________________", styles['Normal']))
-        
+
         # Générer le PDF
         doc.build(story)
         return True

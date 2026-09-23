@@ -286,3 +286,28 @@ INDICATEURS_QUALITE = [
     "Satisfaction patient",
     "Documentation complète dans les délais"
 ]
+
+# ============================================================================
+# LISTES DE CHOIX PARTAGÉES (UI Streamlit — évite la duplication dans app.py)
+# ============================================================================
+
+TYPES_RAPPORT = [
+    "Rapport de soins standard",
+    "Transmission de quart",
+    "Observation ponctuelle",
+    "Évaluation douleur",
+    "Suivi plaie",
+    "Administration médicamenteuse",
+]
+
+QUARTS = [
+    "Matin (07h-15h)",
+    "Après-midi (15h-23h)",
+    "Nuit (23h-07h)",
+]
+
+LANGUES = [
+    "Français",
+    "Néerlandais",
+    "Mixte",
+]

@@ -12,6 +12,6 @@ Modules:
   - AnalysInsight: Analyses et indicateurs qualité
 """
 
-__version__ = "0.1.0-alpha"
+__version__ = "0.2.0"
 __author__ = "NurseLog AI"
 __license__ = "MIT"

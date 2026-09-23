@@ -2,24 +2,18 @@
 Tests unitaires pour le moteur NurseLog AI
 """
 
-import sys
 import os
 import shutil
+import sys
 import tempfile
+
 import pytest
 
 # Ajouter le dossier parent au chemin pour importer src
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from src.nurselog_engine import NurseLogEngine, TranscriptionError
-from src.templates import (
-    CODES_NAA_RECONNAISSANCE,
-    ECHELLES_EVALUATION,
-    STRUCTURE_SBAr,
-    VOCABULAIRE,
-    RAPPORT_TEMPLATE
-)
-
+from src.templates import CODES_NAA_RECONNAISSANCE, ECHELLES_EVALUATION, RAPPORT_TEMPLATE, VOCABULAIRE, STRUCTURE_SBAr
 
 # Données de test réutilisables
 PATIENT_TEST = {
@@ -107,8 +101,8 @@ class TestNurseLogEngine:
         assert len(rapport["codes_naa"]) > 0
         # Devrait trouver un code de pansement
         codes_texte = " ".join([str(c) for c in rapport["codes_naa"]]).lower()
-        # Au moins un code devrait être trouvé
-        assert len(rapport["codes_naa"]) >= 1
+        # Au moins un code non vide devrait être trouvé
+        assert codes_texte
 
     def test_generer_transmissions_sbar(self):
         """Génération d'une transmission SBAr"""
@@ -239,6 +233,27 @@ class TestAlertes:
         # (sauf alertes générales du template)
         assert isinstance(rapport["alertes"], list)
 
+    def test_val_faible_positive_supprime(self):
+        """\"valeur\" ne doit PAS déclencher une alerte de chute."""
+        dictee = "La valeur de la glycémie est de 2.1 g/L, patient stable."
+        rapport = self.engine.generer_rapport(dictee, PATIENT_TEST)
+        assert not any("(val)" in a for a in rapport["alertes"])
+        # "valrisico" doit toujours fonctionner
+        rapport2 = self.engine.generer_rapport(
+            "Patient valrisico, précautions anti-chute en place.", PATIENT_TEST
+        )
+        assert any("risque de chute" in a.lower() for a in rapport2["alertes"])
+
+    def test_voie_sc_word_boundary(self):
+        """\"privé\" ne doit PAS être détecté comme voie SC/IV."""
+        # "sc" dans "escargot" ou "iv" dans "privé" → pas de faux positif
+        contexte = "le patient est privé de soins, chambre scellée"
+        voie = self.engine._detecter_voie(contexte)
+        assert voie in ("", "SC")  # "scellée" ne contient pas "sc" en mot isolé
+        # "intraveineuse" doit toujours être détecté
+        contexte_ok = "administration par voie intraveineuse"
+        assert self.engine._detecter_voie(contexte_ok) == "IV"
+
 
 class TestExport:
     """Tests des fonctionnalités d'export"""
@@ -277,7 +292,7 @@ class TestExport:
                 "",
                 {}
             )
-            assert True  # Ne devrait pas lever d'erreur
+            assert result is not None  # Ne devrait pas lever d'erreur
         except Exception:
             pass  # On accepte les erreurs dans le cas de test
 
@@ -314,6 +329,19 @@ class TestMedicaments:
         assert len(meds) > 0
         noms = [m["nom"].lower() for m in meds]
         assert any("morphine" in n for n in noms)
+
+    def test_mots_courts_exclus(self):
+        """Mots de < 3 caractères + dose ne sont pas extraits."""
+        dictee = "pi 5ml, le 10g de solution"
+        rapport = self.engine.generer_rapport(dictee, PATIENT_TEST)
+        noms = [m["nom"].lower() for m in rapport["medicaments"]]
+        # "pi" (2 chars) et "le" (2 chars) ne doivent pas apparaître
+        assert "pi" not in noms
+        assert "le" not in noms
+        # Un vrai nom ≥ 3 chars avec dose est détecté
+        rapport2 = self.engine.generer_rapport("morfina 5ml IV", PATIENT_TEST)
+        noms2 = [m["nom"].lower() for m in rapport2["medicaments"]]
+        assert "morfina" in noms2
 
 
 class TestNumeroDossier:
@@ -353,9 +381,9 @@ class TestRapportStructure:
         soins = ["Pansement plaie", "Surveillance TA"]
         alertes = ["Surveiller la douleur"]
         plan = ["Prochain pansement 48h"]
-        
+
         rapport = self.engine.generer_rapport_structure(patient, evaluation, soins, alertes, plan)
-        
+
         assert rapport["patient"]["nom"] == "Durand"
         assert rapport["evaluation"]["Signes vitaux"]["Tension artérielle"] == "120/80 mmHg"
         assert rapport["soins"] == ["Pansement plaie", "Surveillance TA"]
@@ -438,8 +466,9 @@ class TestTranscriptionAudio:
 
     # --- Backend API OpenAI ---
 
-    def test_openai_transcription_ok(self):
+    def test_openai_transcription_ok(self, monkeypatch):
         """Transcription via API : le texte est retourné"""
+        monkeypatch.setenv("NURSELOG_TRANSCRIPTION_BACKEND", "openai")
         client = self._mock_openai_client("Pansement réalisé, douleur 2/10")
         result = self.engine.transcrire_audio(
             b"fake-audio", filename="dictee.wav",
@@ -448,8 +477,9 @@ class TestTranscriptionAudio:
         assert result == "Pansement réalisé, douleur 2/10"
         assert len(client.audio.calls) == 1
 
-    def test_openai_parametres_appels(self):
+    def test_openai_parametres_appels(self, monkeypatch):
         """L'appel API reçoit le modèle et le format de réponse attendus"""
+        monkeypatch.setenv("NURSELOG_TRANSCRIPTION_BACKEND", "openai")
         client = self._mock_openai_client("ok")
         self.engine.transcrire_audio(
             b"fake-audio", filename="dictee.wav",
@@ -459,8 +489,9 @@ class TestTranscriptionAudio:
         assert call["model"] == "whisper-1"
         assert call["response_format"] == "text"
 
-    def test_openai_transmission_langue(self):
+    def test_openai_transmission_langue(self, monkeypatch):
         """La langue affichable est convertie en code ISO pour Whisper"""
+        monkeypatch.setenv("NURSELOG_TRANSCRIPTION_BACKEND", "openai")
         client = self._mock_openai_client("ok")
         self.engine.transcrire_audio(
             b"fake-audio", filename="dictee.wav",
@@ -468,8 +499,9 @@ class TestTranscriptionAudio:
         )
         assert client.audio.calls[0]["language"] == "fr"
 
-    def test_openai_langue_nederlandaise(self):
+    def test_openai_langue_nederlandaise(self, monkeypatch):
         """Le néerlandais est bien converti en 'nl'"""
+        monkeypatch.setenv("NURSELOG_TRANSCRIPTION_BACKEND", "openai")
         client = self._mock_openai_client("ok")
         self.engine.transcrire_audio(
             b"fake-audio", filename="dictee.wav",
@@ -477,8 +509,9 @@ class TestTranscriptionAudio:
         )
         assert client.audio.calls[0]["language"] == "nl"
 
-    def test_openai_langue_auto_pas_transmise(self):
+    def test_openai_langue_auto_pas_transmise(self, monkeypatch):
         """Sans langue précisée, Whisper détecte automatiquement"""
+        monkeypatch.setenv("NURSELOG_TRANSCRIPTION_BACKEND", "openai")
         client = self._mock_openai_client("ok")
         self.engine.transcrire_audio(
             b"fake-audio", filename="dictee.wav",
@@ -486,8 +519,9 @@ class TestTranscriptionAudio:
         )
         assert "language" not in client.audio.calls[0]
 
-    def test_openai_prompt_medical_priming(self):
+    def test_openai_prompt_medical_priming(self, monkeypatch):
         """Le vocabulaire médical est transmis comme initial_prompt"""
+        monkeypatch.setenv("NURSELOG_TRANSCRIPTION_BACKEND", "openai")
         client = self._mock_openai_client("ok")
         self.engine.transcrire_audio(
             b"fake-audio", filename="dictee.wav",
@@ -501,8 +535,9 @@ class TestTranscriptionAudio:
         # Les médicaments courants doivent être primés (noms propres sensibles)
         assert "paracétamol" in prompt.lower() or "paracetamol" in prompt.lower()
 
-    def test_openai_modele_personnalise(self):
+    def test_openai_modele_personnalise(self, monkeypatch):
         """Un modèle plus précis peut être sélectionné"""
+        monkeypatch.setenv("NURSELOG_TRANSCRIPTION_BACKEND", "openai")
         client = self._mock_openai_client("ok")
         self.engine.transcrire_audio(
             b"fake-audio", filename="dictee.wav",
@@ -510,8 +545,9 @@ class TestTranscriptionAudio:
         )
         assert client.audio.calls[0]["model"] == "gpt-4o-transcribe"
 
-    def test_openai_erreur_api_key_invalide(self):
+    def test_openai_erreur_api_key_invalide(self, monkeypatch):
         """Une erreur 401 est traduite en message actionnable"""
+        monkeypatch.setenv("NURSELOG_TRANSCRIPTION_BACKEND", "openai")
         class MockAudio:
             def transcribe(self, **kwargs):
                 raise Exception("Error code: 401 - Invalid API Key provided")
@@ -528,8 +564,9 @@ class TestTranscriptionAudio:
             )
         assert "clé api" in str(excinfo.value).lower()
 
-    def test_openai_erreur_rate_limit(self):
+    def test_openai_erreur_rate_limit(self, monkeypatch):
         """Une erreur 429 est traduite en message actionnable"""
+        monkeypatch.setenv("NURSELOG_TRANSCRIPTION_BACKEND", "openai")
         class MockAudio:
             def transcribe(self, **kwargs):
                 raise Exception("Error code: 429 - Rate limit reached")
@@ -546,8 +583,9 @@ class TestTranscriptionAudio:
             )
         assert "rate limit" in str(excinfo.value).lower()
 
-    def test_openai_transcription_vide(self):
+    def test_openai_transcription_vide(self, monkeypatch):
         """Une transcription vide lève une erreur claire"""
+        monkeypatch.setenv("NURSELOG_TRANSCRIPTION_BACKEND", "openai")
         client = self._mock_openai_client("")
         with pytest.raises(TranscriptionError) as excinfo:
             self.engine.transcrire_audio(

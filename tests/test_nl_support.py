@@ -2,8 +2,9 @@
 Tests spécifiques pour le support néerlandais
 """
 
-import sys
 import os
+import sys
+
 import pytest
 
 # Ajouter src au chemin
@@ -28,7 +29,7 @@ class TestNLSupport:
             "chambre": "4A-12",
             "numero_dossier": "D-2024-1234"
         }
-        
+
         rapport = self.engine.generer_rapport(dictee, patient_data)
         sv = rapport["evaluation"]["Signes vitaux"]
         assert "140/90" in sv.get("Tension artérielle", "")
@@ -42,7 +43,7 @@ class TestNLSupport:
             "chambre": "4A-12",
             "numero_dossier": "D-2024-1234"
         }
-        
+
         rapport = self.engine.generer_rapport(dictee, patient_data)
         sv = rapport["evaluation"]["Signes vitaux"]
         assert "72" in sv.get("Pouls", "")
@@ -56,7 +57,7 @@ class TestNLSupport:
             "chambre": "4A-12",
             "numero_dossier": "D-2024-1234"
         }
-        
+
         rapport = self.engine.generer_rapport(dictee, patient_data)
         assert len(rapport["soins"]) > 0
         soins_texte = " ".join(rapport["soins"]).lower()
@@ -71,7 +72,7 @@ class TestNLSupport:
             "chambre": "4A-12",
             "numero_dossier": "D-2024-1234"
         }
-        
+
         rapport = self.engine.generer_rapport(dictee, patient_data)
         assert len(rapport["alertes"]) > 0
         alertes_texte = " ".join(rapport["alertes"]).lower()

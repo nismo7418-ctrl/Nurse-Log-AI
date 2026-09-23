@@ -28,13 +28,11 @@ Features v2 :
 from __future__ import annotations
 
 import time
-from typing import Optional
 
 import streamlit as st
 
-from audio_relay import get_audio_relay
+from audio_relay import get_audio_relay, mime_vers_extension
 from nurselog_engine import NurseLogEngine, TranscriptionError
-
 
 # ---------------------------------------------------------------------------
 # Constantes
@@ -257,7 +255,7 @@ function listenRec() {
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _attendre_nouvel_enregistrement(relay, timestamp_repere: float) -> Optional[dict]:
+def _attendre_nouvel_enregistrement(relay, timestamp_repere: float) -> dict | None:
     """
     Poll le relay jusqu'à ce qu'un nouvel enregistrement (timestamp > repère)
     soit disponible, ou jusqu'au timeout.
@@ -276,10 +274,10 @@ def _attendre_nouvel_enregistrement(relay, timestamp_repere: float) -> Optional[
 def _transcrire_avec_retry(
     relay,
     info: dict,
-    langue: Optional[str],
+    langue: str | None,
     model: str,
     local_model: str,
-) -> tuple[Optional[str], Optional[str]]:
+) -> tuple[str | None, str | None]:
     """
     Tente la transcription avec retry automatique.
 
@@ -294,7 +292,7 @@ def _transcrire_avec_retry(
             engine = NurseLogEngine()
             texte = engine.transcrire_audio(
                 audio_data=audio_bytes,
-                filename=f"micro_{int(info['horodatage'])}.webm",
+                filename=f"micro_{int(info['horodatage'])}.{mime_vers_extension(info.get('mime', ''))}",
                 langue=langue,
                 model=model,
                 local_model=local_model,

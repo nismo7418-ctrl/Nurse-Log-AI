@@ -1,0 +1,17 @@
+# Streamlit Configuration — NurseLog AI
+# https://docs.streamlit.io/
+
+[server]
+headless = true
+port = 8501
+corsAllowedOrigins = ["http://localhost:8501"]
+
+[theme]
+primaryColor = "#006699"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F0F7FA"
+textColor = "#1A1A2E"
+font = "sans serif"
+
+[browser]
+gatherUsageStats = false

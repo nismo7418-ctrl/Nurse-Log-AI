@@ -14,21 +14,19 @@ En production : remplacement par LLM (Llama 3, Mistral, ou Claude)
 avec RAG sur la terminologie médicale belge.
 """
 
+import datetime
+import importlib.util
+import json
 import os
 import re
 import shutil
-import datetime
-import json
 import tempfile
-from typing import Dict, List, Optional, Any
+from typing import Any
 
 from templates import (
-    RAPPORT_TEMPLATE,
-    TEMPLATES_TYPES,
-    VOCABULAIRE,
     CODES_NAA_RECONNAISSANCE,
-    ECHELLES_EVALUATION,
-    STRUCTURE_SBAr
+    RAPPORT_TEMPLATE,
+    VOCABULAIRE,
 )
 
 
@@ -44,7 +42,7 @@ class TranscriptionError(Exception):
 class NurseLogEngine:
     """
     Moteur principal de NurseLog AI.
-    
+
     Transforme une dictée textuelle libre en rapport de soins structuré,
     conforme aux standards belges (KCE, eHealth, NAA).
     """
@@ -53,14 +51,9 @@ class NurseLogEngine:
         self.version = "0.1.0"
         self.langue_par_defaut = "Français"
         self._initialiser_modeles_extraction()
-        
+
         # Pour les futures améliorations avec LLM
-        self.llm_available = False
-        try:
-            import transformers
-            self.llm_available = True
-        except ImportError:
-            pass
+        self.llm_available = importlib.util.find_spec("transformers") is not None
 
     # ========================================================================
     # INITIALISATION
@@ -117,13 +110,8 @@ class NurseLogEngine:
         )
 
         self.regex_medicament = re.compile(
-            r'([A-Za-zàâéèêîôûùçñ]+(?:\s+[A-Za-zàâéèêîôûùçñ]+)*)'
+            r'([A-Za-zàâéèêîôûùçñ]{3,}(?:\s+[A-Za-zàâéèêîôûùçñ]+)*)'
             r'\s+(\d+(?:\.\d+)?)\s*(mg|ml|g|UI|µg|microg)',
-            re.IGNORECASE
-        )
-
-        self.regex_heure = re.compile(
-            r'(\d{1,2})\s*(?:h|:)\s*(\d{2})',
             re.IGNORECASE
         )
 
@@ -131,58 +119,61 @@ class NurseLogEngine:
     # MÉTHODE PRINCIPALE
     # ========================================================================
 
-    def generer_rapport(self, dictee: str, patient_data: Dict[str, Any]) -> Dict[str, Any]:
+    def generer_rapport(self, dictee: str, patient_data: dict[str, Any]) -> dict[str, Any]:
         """
         Génère un rapport structuré à partir d'une dictée textuelle.
-        
+
         Args:
             dictee: Texte libre dicté par l'infirmier(e)
             patient_data: Données du patient (nom, chambre, etc.)
-        
+
         Returns:
             Dictionnaire structuré conforme au template belge
         """
         # Initialiser le rapport depuis le template
         rapport = self._copier_template()
-        
+
         # Remplir les métadonnées
         self._remplir_metadonnees(rapport, patient_data)
-        
+
         # Remplir les infos patient
         self._remplir_patient(rapport, patient_data)
-        
+
         # Extraire les signes vitaux
         rapport["evaluation"] = self._extraire_signes_vitaux(dictee)
-        
+
         # Extraire les soins réalisés
         rapport["soins"] = self._extraire_soins(dictee)
-        
+
         # Extraire les alertes
         rapport["alertes"] = self._extraire_alertes(dictee)
-        
+
         # Extraire le plan de soins
         rapport["plan"] = self._extraire_plan(dictee)
-        
+
         # Mapper les codes NAA
         rapport["codes_naa"] = self._mapper_codes_naa(dictee)
-        
+
         # Extraire les médicaments
         rapport["medicaments"] = self._extraire_medicaments(dictee)
-        
+
         # Générer les transmissions SBAr
         rapport["transmissions"] = self._generer_transmissions(dictee, rapport)
-        
+
+        # Conserver la dictée originale (audit + vérifications croisées)
+        rapport["dictee_originale"] = dictee
+
         return rapport
 
     # ========================================================================
     # REMPLISSAGE MÉTADONNÉES & PATIENT
     # ========================================================================
 
-    def _copier_template(self) -> Dict:
+    def _copier_template(self) -> dict:
         """Crée une copie profonde du template de rapport."""
         return json.loads(json.dumps(RAPPORT_TEMPLATE))
 
-    def _remplir_metadonnees(self, rapport: Dict, patient_data: Dict):
+    def _remplir_metadonnees(self, rapport: dict, patient_data: dict):
         """Remplit les métadonnées du rapport."""
         maintenant = datetime.datetime.now()
         rapport["metadata"]["date"] = maintenant.strftime("%Y-%m-%d")
@@ -191,7 +182,7 @@ class NurseLogEngine:
         rapport["metadata"]["type_rapport"] = patient_data.get("type_rapport", "Rapport de soins standard")
         rapport["metadata"]["langue"] = patient_data.get("langue", "Français")
 
-    def _remplir_patient(self, rapport: Dict, patient_data: Dict):
+    def _remplir_patient(self, rapport: dict, patient_data: dict):
         """Remplit les informations patient."""
         rapport["patient"]["nom"] = patient_data.get("nom", "")
         rapport["patient"]["prenom"] = patient_data.get("prenom", "")
@@ -203,7 +194,7 @@ class NurseLogEngine:
     # EXTRACTION DES SIGNES VITAUX
     # ========================================================================
 
-    def _extraire_signes_vitaux(self, texte: str) -> Dict:
+    def _extraire_signes_vitaux(self, texte: str) -> dict:
         """Extrait et structure les signes vitaux du texte."""
         evaluation = {
             "Signes vitaux": {},
@@ -297,7 +288,7 @@ class NurseLogEngine:
 
         # Analyse sémantique pour état général
         texte_lower = texte.lower()
-        
+
         # État général
         etat_general_indicateurs = []
         if any(w in texte_lower for w in ["conscient", "eveille", "eveill", "alerte", "orienté", "oriente"]):
@@ -310,7 +301,7 @@ class NurseLogEngine:
             etat_general_indicateurs.append("État stable / en amélioration")
         if any(w in texte_lower for w in ["dégradation", "detérioration", "deterioration", "aggravation"]):
             etat_general_indicateurs.append("⚠️ Dégradation de l'état général")
-        
+
         if etat_general_indicateurs:
             evaluation["État général"] = ". ".join(etat_general_indicateurs)
 
@@ -369,7 +360,7 @@ class NurseLogEngine:
     # EXTRACTION DES SOINS
     # ========================================================================
 
-    def _extraire_soins(self, texte: str) -> List[str]:
+    def _extraire_soins(self, texte: str) -> list[str]:
         """Extrait la liste des soins réalisés à partir du texte."""
         soins = []
         texte_lower = texte.lower()
@@ -452,11 +443,11 @@ class NurseLogEngine:
         # Dimensions de plaie
         match_plaie = self.regex_dimensions_plaie.search(texte)
         if match_plaie:
-            l = match_plaie.group(1)
-            w = match_plaie.group(2)
-            d = match_plaie.group(3) if match_plaie.group(3) else "N/A"
-            if f"Plaie mesurée: {l} x {w} x {d} cm" not in soins:
-                soins.append(f"Plaie mesurée: {l} x {w} x {d} cm")
+            longueur = match_plaie.group(1)
+            largeur = match_plaie.group(2)
+            profondeur = match_plaie.group(3) if match_plaie.group(3) else "N/A"
+            if f"Plaie mesurée: {longueur} x {largeur} x {profondeur} cm" not in soins:
+                soins.append(f"Plaie mesurée: {longueur} x {largeur} x {profondeur} cm")
 
         # Si aucun soin détecté, utiliser le texte brut comme fallback
         if not soins:
@@ -468,7 +459,7 @@ class NurseLogEngine:
     def _enrichir_soin(self, description: str, texte: str, motif: str) -> str:
         """Enrichit un soin avec des détails extraits du contexte."""
         texte_lower = texte.lower()
-        
+
         enrichissements = {
             "propre": " — plaie propre, bonne évolution",
             "sale": " — plaie à nettoyer",
@@ -486,7 +477,7 @@ class NurseLogEngine:
 
         return description
 
-    def _extraire_phrases_soins(self, texte: str) -> List[str]:
+    def _extraire_phrases_soins(self, texte: str) -> list[str]:
         """Extrait les phrases descriptives comme fallback."""
         phrases = []
         # Séparer par ponctuation principale
@@ -495,7 +486,7 @@ class NurseLogEngine:
             segment = segment.strip()
             if 20 < len(segment) < 200:
                 # Ne garder que les segments qui décrivent des actions
-                mots_action = ["réalisé", "effectué", "fait", "administré", "posé", 
+                mots_action = ["réalisé", "effectué", "fait", "administré", "posé",
                              "vérifié", "surveillé", "observé", "noté", "changé"]
                 if any(mot in segment.lower() for mot in mots_action):
                     phrases.append(segment)
@@ -523,7 +514,7 @@ class NurseLogEngine:
     MODELES_LOCAUX = ("tiny", "base", "small")
 
     # Cache des modèles Whisper locaux chargés (évite de recharger à chaque transcription)
-    _whisper_cache: Dict[str, Any] = {}
+    _whisper_cache: dict[str, Any] = {}
 
     # Médicaments courants en soins infirmiers (FR + NL), par classe thérapeutique,
     # les plus fréquents en premier. Utilisé à la fois pour le priming de la
@@ -561,24 +552,24 @@ class NurseLogEngine:
         self,
         audio_data: bytes,
         filename: str = "audio.wav",
-        langue: Optional[str] = None,
+        langue: str | None = None,
         model: str = "whisper-1",
         local_model: str = "base",
-        api_key: Optional[str] = None,
-        client: Optional[Any] = None,
+        api_key: str | None = None,
+        client: Any | None = None,
         timeout: int = 120,
     ) -> str:
         """
         Transcrit un fichier audio en texte (dictée de soins).
 
-        Deux backends, dans cet ordre :
-          1. **API OpenAI Whisper** — si `api_key` est fournie et le package
-             `openai` est installé. Bénéficie de l'indice de langue et du
-             priming de vocabulaire médical (`initial_prompt`) pour une
-             meilleure précision sur les termes cliniques.
-          2. **Whisper local** (package `openai-whisper`) — 100% local,
-             aucune donnée ne quitte la machine (conforme au principe
-             local-first / RGPD du projet).
+        Deux backends, dans cet ordre (RGPD : local d'abord) :
+          1. **Whisper local** (package `openai-whisper`) — 100% local,
+             aucune donnée ne quitte la machine (principe local-first / RGPD).
+          2. **API OpenAI Whisper** — si `api_key` est fournie et le package
+             `openai` est installé (transfert de l'audio hors machine ;
+             voir section RGPD du README).
+
+        Forcer un backend : `NURSELOG_TRANSCRIPTION_BACKEND=openai|local`.
 
         Args:
             audio_data: Contenu binaire du fichier audio.
@@ -623,6 +614,26 @@ class NurseLogEngine:
                 f"Modèles disponibles : {', '.join(self.MODELES_TRANSCRIPTION)}"
             )
 
+        def _whisper_local_disponible() -> bool:
+            try:
+                import whisper  # noqa: F401
+                return True
+            except ImportError:
+                return False
+
+        def _openai_client() -> Any | None:
+            if api_key:
+                if client is not None:
+                    return client
+                try:
+                    from openai import OpenAI
+                except ImportError:
+                    return None
+                return OpenAI(api_key=api_key, timeout=timeout)
+            return None
+
+        pref = os.environ.get("NURSELOG_TRANSCRIPTION_BACKEND", "").lower()
+
         if local_model not in self.MODELES_LOCAUX:
             raise TranscriptionError(
                 f"Modèle local inconnu : {local_model}. "
@@ -631,31 +642,14 @@ class NurseLogEngine:
 
         langue_code = self._normaliser_langue(langue)
 
-        # --- Backend 1 : API OpenAI Whisper ---------------------------------
+        # Clé API effective (paramètre ou environnement), finalisée avant la
+        # décision de backend pour éviter une lecture incohérente.
         api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
-        if api_key:
-            if client is None:
-                try:
-                    from openai import OpenAI
-                except ImportError:
-                    client = None
-                else:
-                    client = OpenAI(api_key=api_key, timeout=timeout)
-            if client is not None:
-                return self._transcrire_openai(
-                    client=client,
-                    audio_data=audio_data,
-                    filename=filename,
-                    langue=langue_code,
-                    model=model,
-                )
 
-        # --- Backend 2 : Whisper local (openai-whisper) ----------------------
-        try:
-            import whisper  # noqa: F401
-        except ImportError:
-            pass
-        else:
+        whisper_local_ok = _whisper_local_disponible()
+        client_openai = _openai_client() if api_key else None
+
+        def _transcrire_local_backend() -> str:
             return self._transcrire_local(
                 audio_data=audio_data,
                 filename=filename,
@@ -663,7 +657,45 @@ class NurseLogEngine:
                 local_model=local_model,
             )
 
-        # --- Aucun backend disponible ----------------------------------------
+        def _transcrire_openai_backend() -> str:
+            return self._transcrire_openai(
+                client=client_openai,
+                audio_data=audio_data,
+                filename=filename,
+                langue=langue_code,
+                model=model,
+            )
+
+        # --- Choix du backend (RGPD : local d'abord) -------------------------
+        # pref=="local"  → local uniquement (jamais de repli OpenAI : RGPD).
+        # pref=="openai" → OpenAI, repli local si indisponible (données locales).
+        # sinon          → local d'abord, repli OpenAI.
+        if pref == "local":
+            if not whisper_local_ok:
+                raise TranscriptionError(
+                    "Backend local forcé (NURSELOG_TRANSCRIPTION_BACKEND=local) "
+                    "mais `openai-whisper` n'est pas installé. "
+                    "Installez `openai-whisper` et `ffmpeg`."
+                )
+            return _transcrire_local_backend()
+
+        if pref == "openai":
+            if client_openai is not None:
+                return _transcrire_openai_backend()
+            if whisper_local_ok:
+                return _transcrire_local_backend()
+            raise TranscriptionError(
+                "Backend OpenAI forcé (NURSELOG_TRANSCRIPTION_BACKEND=openai) "
+                "mais indisponible (pas de OPENAI_API_KEY ou package `openai` "
+                "absent), et aucun repli local possible."
+            )
+
+        # Défaut : local d'abord (RGPD), repli OpenAI.
+        if whisper_local_ok:
+            return _transcrire_local_backend()
+        if client_openai is not None:
+            return _transcrire_openai_backend()
+
         raise TranscriptionError(
             "Aucun backend de transcription disponible.\n"
             "Option 1 (API) : installez le package `openai` "
@@ -674,7 +706,7 @@ class NurseLogEngine:
         )
 
     @staticmethod
-    def _normaliser_langue(langue: Optional[str]) -> Optional[str]:
+    def _normaliser_langue(langue: str | None) -> str | None:
         """Convertit une langue affichable en code ISO pour Whisper."""
         if not langue:
             return None
@@ -697,7 +729,7 @@ class NurseLogEngine:
           2. Médicaments courants — noms propres souvent mal orthographiés ;
           3. Soins courants, alertes, états généraux — vocabulaire de base.
         """
-        termes: List[str] = []
+        termes: list[str] = []
 
         def _ajouter_categorie(categorie: str) -> None:
             for valeurs in VOCABULAIRE.get(categorie, {}).values():
@@ -726,7 +758,7 @@ class NurseLogEngine:
         client: Any,
         audio_data: bytes,
         filename: str,
-        langue: Optional[str],
+        langue: str | None,
         model: str,
     ) -> str:
         """Transcription via l'API OpenAI Whisper."""
@@ -737,7 +769,7 @@ class NurseLogEngine:
                 tmp.write(audio_data)
                 tmp_path = tmp.name
 
-            kwargs: Dict[str, Any] = {
+            kwargs: dict[str, Any] = {
                 "model": model,
                 "file": open(tmp_path, "rb"),
                 "response_format": "text",
@@ -797,7 +829,7 @@ class NurseLogEngine:
         return f"Erreur lors de la transcription : {e}"
 
     @staticmethod
-    def _chercher_ffmpeg() -> Optional[str]:
+    def _chercher_ffmpeg() -> str | None:
         """Localise l'exécutable ffmpeg (requis par openai-whisper).
 
         Cherche d'abord dans le PATH, puis dans les emplacements
@@ -811,7 +843,7 @@ class NurseLogEngine:
             return trouve
 
         binaire = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
-        candidats: List[str] = []
+        candidats: list[str] = []
         if os.name == "nt":
             base_user = os.path.expanduser("~")
             # winget : Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-*-full_build/bin
@@ -847,7 +879,7 @@ class NurseLogEngine:
         return None
 
     @classmethod
-    def _assurer_ffmpeg(cls) -> Optional[str]:
+    def _assurer_ffmpeg(cls) -> str | None:
         """S'assure que ffmpeg est accessible dans le PATH.
 
         openai-whisper appelle ffmpeg en sous-processus pour décoder
@@ -870,7 +902,7 @@ class NurseLogEngine:
         self,
         audio_data: bytes,
         filename: str,
-        langue: Optional[str],
+        langue: str | None,
         local_model: str = "base",
     ) -> str:
         """Transcription 100% locale via le package openai-whisper.
@@ -899,7 +931,7 @@ class NurseLogEngine:
                 tmp.write(audio_data)
                 tmp_path = tmp.name
 
-            kwargs: Dict[str, Any] = {"fp16": False}
+            kwargs: dict[str, Any] = {"fp16": False}
             if langue:
                 kwargs["language"] = langue
             # Priming du vocabulaire médical (identique au backend API)
@@ -951,7 +983,7 @@ class NurseLogEngine:
         return modele
 
     @classmethod
-    def statut_transcription(cls) -> Dict[str, Any]:
+    def statut_transcription(cls) -> dict[str, Any]:
         """
         État des backends de transcription disponibles.
         Utilisé par l'interface pour afficher le statut et guider l'utilisateur.
@@ -974,12 +1006,19 @@ class NurseLogEngine:
         # ffmpeg est requis par le backend local (décodage audio)
         ffmpeg_ok = cls._chercher_ffmpeg() is not None
 
-        if api_key and openai_ok:
-            backend = "openai"
-        elif whisper_local_ok:
-            backend = "local"
+        # Même logique que transcrire_audio (RGPD : local d'abord).
+        pref = os.environ.get("NURSELOG_TRANSCRIPTION_BACKEND", "").lower()
+        if pref == "local":
+            # Forcé local : jamais de repli OpenAI (données ne doivent pas sortir).
+            backend = "local" if whisper_local_ok else None
+        elif pref == "openai":
+            backend = "openai" if (api_key and openai_ok) else (
+                "local" if whisper_local_ok else None
+            )
         else:
-            backend = None
+            backend = "local" if whisper_local_ok else (
+                "openai" if (api_key and openai_ok) else None
+            )
 
         return {
             "disponible": backend is not None,
@@ -998,7 +1037,7 @@ class NurseLogEngine:
     # EXTRACTION DES ALERTES
     # ========================================================================
 
-    def _extraire_alertes(self, texte: str) -> List[str]:
+    def _extraire_alertes(self, texte: str) -> list[str]:
         """Détecte les alertes et points de vigilance."""
         alertes = []
         texte_lower = texte.lower()
@@ -1034,7 +1073,7 @@ class NurseLogEngine:
             ("spoed", "🚨 Situation urgente"),
             ("bloeding", "⚠️ Saignement (bloeding)"),
             ("valrisico", "⚠️ Risque de chute — précautions anti-chute en place"),
-            ("val", "⚠️ Chute signalée / risque de chute (val)"),
+
             ("allergie", "⚠️ Allergie signalée — vérifier protocole"),
             ("allergie", "⚠️ Allergie signalée — vérifier protocole (allergie)"),
             ("isolatie", "⚠️ Patient en isolement (isolatie)"),
@@ -1111,7 +1150,7 @@ class NurseLogEngine:
     # EXTRACTION DU PLAN DE SOINS
     # ========================================================================
 
-    def _extraire_plan(self, texte: str) -> List[str]:
+    def _extraire_plan(self, texte: str) -> list[str]:
         """Extrait les actions futures et le plan de soins."""
         plan = []
         texte_lower = texte.lower()
@@ -1159,8 +1198,6 @@ class NurseLogEngine:
             "fièvre": "Surveillance température toutes les 4h",
         }
 
-        # Vérifier si le sujet est déjà couvert par les plans extraits
-        plan_sujets = " ".join(plan).lower()
         for motif, plan_action in plans_par_defaut.items():
             if motif in texte_lower:
                 # Ne pas ajouter si le sujet est déjà dans les plans existants
@@ -1182,7 +1219,7 @@ class NurseLogEngine:
     # MAPPING CODES NAA
     # ========================================================================
 
-    def _mapper_codes_naa(self, texte: str) -> List[Dict]:
+    def _mapper_codes_naa(self, texte: str) -> list[dict]:
         """Mappe le texte aux codes NAA belges appropriés."""
         codes_trouves = []
         texte_lower = texte.lower()
@@ -1202,21 +1239,21 @@ class NurseLogEngine:
             "escarr": "pansement",  # escarre, escarres
             "ulcère": "pansement",  # ulcère, ulcères
             "injection": "injection",
-            "IM": "injection",
-            "SC": "injection",
-            "SQ": "injection",
+            "im": "injection",
+            "sc": "injection",
+            "sq": "injection",
             "perfusion": "perfusion",
             "voie veineuse": "perfusion",
             "cathéter": "perfusion",
             "glycémie": "surveillance",
             "glycémie capillaire": "surveillance",
-            "SpO2": "surveillance",
+            "spo2": "surveillance",
             "saturation": "surveillance",
             "surveillance": "surveillance",
             "éducation": "education",
             "éduquer": "education",
             "douleur": "douleur",
-            "EVA": "douleur",
+            "eva": "douleur",
         }
 
         for motif, categorie in mapping_auto.items():
@@ -1252,18 +1289,27 @@ class NurseLogEngine:
     }
 
     def _detecter_voie(self, contexte: str) -> str:
-        """Détecte la voie d'administration dans le contexte autour du médicament."""
+        """Détecte la voie d'administration dans le contexte autour du médicament.
+
+        Les variantes courtes (≤ 3 caractères, sans espaces) sont
+        testées en word-boundary pour éviter les faux positifs
+        (ex. "sc" dans "escargot", "iv" dans "privé").
+        """
         contexte_lower = contexte.lower()
         for voie, variantes in self.VOIES_ADMINISTRATION.items():
             for variante in variantes:
-                if variante in contexte_lower:
-                    return voie.upper()
+                if len(variante) <= 3 and not any(c in variante for c in " ."):
+                    if re.search(rf'\b{re.escape(variante)}\b', contexte_lower):
+                        return voie.upper()
+                else:
+                    if variante in contexte_lower:
+                        return voie.upper()
         return ""
 
-    def _extraire_medicaments(self, texte: str) -> List[Dict]:
+    def _extraire_medicaments(self, texte: str) -> list[dict]:
         """
         Extrait TOUTES les informations sur les médicaments.
-        
+
         Gère plusieurs patterns :
           - "paracétamol 1g IV" (nom + dose + voie)
           - "1g de paracétamol" (dose + nom)
@@ -1273,7 +1319,7 @@ class NurseLogEngine:
           - "insuline 10 UI" (unités internationales)
         """
         medicaments = []
-        
+
         # --- Pattern 1 : nom + dose + unité (regex existante) ---
         for match in self.regex_medicament.finditer(texte):
             nom = match.group(1).strip()
@@ -1293,7 +1339,7 @@ class NurseLogEngine:
         # --- Pattern 2 : dose + "de" + nom (ex: "1g de paracétamol") ---
         regex_dose_nom = re.compile(
             r'(\d+(?:\.\d+)?)\s*(mg|ml|g|UI|µg|microg)\s*(?:de|d\'?)\s+'
-            r'([A-Za-zàâéèêîôûùçñ]+(?:\s+[A-Za-zàâéèêîôûùçñ]+)*)',
+            r'([A-Za-zàâéèêîôûùçñ]{3,}(?:\s+[A-Za-zàâéèêîôûùçñ]+)*)',
             re.IGNORECASE
         )
         for match in regex_dose_nom.finditer(texte):
@@ -1312,7 +1358,7 @@ class NurseLogEngine:
 
         # --- Pattern 3 : nom + virgule + dose (ex: "paracétamol, 1g") ---
         regex_nom_comma_dose = re.compile(
-            r'([A-Za-zàâéèêîôûùçñ]+(?:\s+[A-Za-zàâéèêîôûùçñ]+)*)\s*[,;]\s*'
+            r'([A-Za-zàâéèêîôûùçñ]{3,}(?:\s+[A-Za-zàâéèêîôûùçñ]+)*)\s*[,;]\s*'
             r'(\d+(?:\.\d+)?)\s*(mg|ml|g|UI|µg|microg)',
             re.IGNORECASE
         )
@@ -1331,8 +1377,10 @@ class NurseLogEngine:
                 })
 
         # --- Pattern 4 : nom + dose sans espace (ex: "paracétamol1000mg") ---
+        # Filtre : nom ≥ 4 caractères pour éviter les faux positifs
+        # (ex. "chambre 12g" → "chambre" n'est pas un médicament).
         regex_nom_dose_colle = re.compile(
-            r'([A-Za-zàâéèêîôûùçñ]+)\s*(\d+(?:\.\d+)?)\s*(mg|ml|g|UI|µg|microg)',
+            r'([A-Za-zàâéèêîôûùçñ]{4,})\s*(\d+(?:\.\d+)?)\s*(mg|ml|g|UI|µg|microg)',
             re.IGNORECASE
         )
         for match in regex_nom_dose_colle.finditer(texte):
@@ -1351,7 +1399,7 @@ class NurseLogEngine:
 
         # --- Recherche générique de noms de médicaments courants (FR + NL) ---
         meds_courants = list(self.MEDICAMENTS_COURANTS)
-        
+
         texte_lower = texte.lower()
         for med in meds_courants:
             if med in texte_lower:
@@ -1373,10 +1421,10 @@ class NurseLogEngine:
     # TRANSMISSIONS SBAr
     # ========================================================================
 
-    def _generer_transmissions(self, texte: str, rapport: Dict) -> List[Dict]:
+    def _generer_transmissions(self, texte: str, rapport: dict) -> list[dict]:
         """
         Génère une transmission structurée en format SBAr enrichi.
-        
+
         Le SBAr (Situation-Background-Assessment-Recommendation) est le
         standard de communication clinique en Belgique. Cette version
         inclut les données cliniques réelles extraites du rapport.
@@ -1390,24 +1438,24 @@ class NurseLogEngine:
         }
         return [transmission]
 
-    def _resumer_situation(self, rapport: Dict) -> str:
+    def _resumer_situation(self, rapport: dict) -> str:
         """Résume la situation actuelle du patient avec les données clés."""
         patient = rapport.get("patient", {})
         nom = patient.get("prenom", "") + " " + patient.get("nom", "")
         chambre = patient.get("chambre", "")
-        
+
         situation = f"Patient {nom}, {chambre}."
-        
+
         # État général
         etat = rapport.get("evaluation", {}).get("État général", "")
         if etat:
             situation += f" {etat}"
-        
+
         # Douleur (donnée critique pour la transmission)
         douleur = rapport.get("evaluation", {}).get("Confort douleur", "")
         if douleur:
             situation += f" {douleur}."
-        
+
         # Alertes critiques (max 3 pour rester concis)
         alertes = rapport.get("alertes", [])
         if alertes:
@@ -1416,20 +1464,20 @@ class NurseLogEngine:
                 situation += f" Points de vigilance : {'; '.join(critiques)}."
             else:
                 situation += f" {len(alertes)} point(s) de vigilance."
-        
+
         return situation
 
-    def _resumer_contexte(self, texte: str, rapport: Dict) -> str:
+    def _resumer_contexte(self, texte: str, rapport: dict) -> str:
         """Résume le contexte clinique avec les signes vitaux et traitements."""
         contexte_parts = []
-        
+
         # Signes vitaux (extraits du rapport, plus fiables que re-parsing)
         sv = rapport.get("evaluation", {}).get("Signes vitaux", {})
         if sv:
             for cle, valeur in sv.items():
                 if cle in ("Tension artérielle", "Pouls", "Température", "SpO2", "Glycémie", "Fréquence respiratoire"):
                     contexte_parts.append(f"{cle}: {valeur}")
-        
+
         # Si pas de SV dans le rapport, extraire du texte (fallback)
         if not contexte_parts:
             match_ta = self.regex_signes_vitaux["tension"].search(texte)
@@ -1444,7 +1492,7 @@ class NurseLogEngine:
             match_spo2 = self.regex_signes_vitaux["spo2"].search(texte)
             if match_spo2:
                 contexte_parts.append(f"SpO2: {match_spo2.group(1)}%")
-        
+
         # Médicaments administrés (contexte important)
         medicaments = rapport.get("medicaments", [])
         if medicaments:
@@ -1453,43 +1501,43 @@ class NurseLogEngine:
                 for m in medicaments[:4]
             )
             contexte_parts.append(f"Traitements: {meds_str}")
-        
+
         # Nutrition / hydratation
         nutrition = rapport.get("evaluation", {}).get("Nutrition hydratation", "")
         if nutrition:
             contexte_parts.append(nutrition)
-        
+
         return "; ".join(contexte_parts) if contexte_parts else "Voir rapport complet."
 
-    def _resumer_appreciation(self, rapport: Dict) -> str:
+    def _resumer_appreciation(self, rapport: dict) -> str:
         """Résume l'appréciation clinique avec les soins et alertes spécifiques."""
         soins = rapport.get("soins", [])
         alertes = rapport.get("alertes", [])
-        
+
         appreciation_parts = []
-        
+
         # Soins réalisés (max 4 pour rester concis)
         if soins:
             soins_str = "; ".join(soins[:4])
             appreciation_parts.append(f"Soins: {soins_str}.")
         else:
             appreciation_parts.append("Aucun soin spécifique documenté.")
-        
+
         # Alertes spécifiques
         if alertes:
             alertes_str = "; ".join(alertes[:3])
             appreciation_parts.append(f"Vigilance: {alertes_str}.")
         else:
             appreciation_parts.append("Aucune alerte majeure.")
-        
+
         # État de douleur (si présent)
         douleur = rapport.get("evaluation", {}).get("Confort douleur", "")
         if douleur and ("⚠️" in douleur or "sévère" in douleur.lower()):
             appreciation_parts.append(f"Douleur significative: {douleur}.")
-        
+
         return " ".join(appreciation_parts)
 
-    def _resumer_recommandation(self, rapport: Dict) -> str:
+    def _resumer_recommandation(self, rapport: dict) -> str:
         """Résume les recommandations et actions à venir."""
         plan = rapport.get("plan", [])
         if plan:
@@ -1500,10 +1548,10 @@ class NurseLogEngine:
     # SCORE DE COMPLÉTUDE
     # ========================================================================
 
-    def score_completude(self, rapport: Dict) -> Dict:
+    def score_completude(self, rapport: dict) -> dict:
         """
         Calcule un score de complétude du rapport (0-100%).
-        
+
         Évalue :
           - Identification patient (nom, chambre)
           - Signes vitaux (au moins 1 mesuré)
@@ -1511,12 +1559,12 @@ class NurseLogEngine:
           - Plan de soins
           - Alertes (si pertinentes)
           - Transmission SBAr
-        
+
         Returns:
             {"score": int, "details": [{"criter": str, "ok": bool, "poids": int, "note": str}]}
         """
         criteres = []
-        
+
         # 1. Identification patient (poids 20)
         patient = rapport.get("patient", {})
         patient_ok = bool(patient.get("nom") and patient.get("chambre"))
@@ -1526,7 +1574,7 @@ class NurseLogEngine:
             "poids": 20,
             "note": "Nom et chambre renseignés" if patient_ok else "Nom ou chambre manquant",
         })
-        
+
         # 2. Signes vitaux (poids 25)
         sv = rapport.get("evaluation", {}).get("Signes vitaux", {})
         sv_ok = len(sv) >= 1
@@ -1537,7 +1585,7 @@ class NurseLogEngine:
             "poids": 25,
             "note": f"{sv_count} paramètre(s) mesuré(s)" if sv_ok else "Aucun signe vital enregistré",
         })
-        
+
         # 3. Soins documentés (poids 25)
         soins = rapport.get("soins", [])
         soins_ok = len(soins) >= 1
@@ -1547,7 +1595,7 @@ class NurseLogEngine:
             "poids": 25,
             "note": f"{len(soins)} soin(s)" if soins_ok else "Aucun soin documenté",
         })
-        
+
         # 4. Plan de soins (poids 15)
         plan = rapport.get("plan", [])
         plan_ok = len(plan) >= 1
@@ -1557,7 +1605,7 @@ class NurseLogEngine:
             "poids": 15,
             "note": f"{len(plan)} action(s) prévue(s)" if plan_ok else "Aucun plan défini",
         })
-        
+
         # 5. Transmission SBAr (poids 15)
         transmissions = rapport.get("transmissions", [])
         sbar_ok = len(transmissions) >= 1 and all(
@@ -1570,12 +1618,12 @@ class NurseLogEngine:
             "poids": 15,
             "note": "SBAr complet" if sbar_ok else "SBAr incomplet ou absent",
         })
-        
+
         # Calcul du score pondéré
         score_total = sum(c["poids"] for c in criteres if c["ok"])
         score_max = sum(c["poids"] for c in criteres)
         score = round(score_total / score_max * 100) if score_max > 0 else 0
-        
+
         return {
             "score": score,
             "details": criteres,
@@ -1588,18 +1636,18 @@ class NurseLogEngine:
     # UTILITAIRES
     # ========================================================================
 
-    def exporter_json(self, rapport: Dict) -> str:
+    def exporter_json(self, rapport: dict) -> str:
         """Exporte le rapport en format JSON."""
         return json.dumps(rapport, indent=2, ensure_ascii=False)
 
-    def exporter_texte_lisible(self, rapport: Dict) -> str:
+    def exporter_texte_lisible(self, rapport: dict) -> str:
         """Exporte le rapport en texte lisible pour impression."""
         lignes = []
         lignes.append("=" * 60)
         lignes.append("NURSELOG AI — RAPPORT DE SOINS INFIRMIERS")
         lignes.append("=" * 60)
         lignes.append("")
-        
+
         # Patient
         p = rapport.get("patient", {})
         lignes.append(f"Patient: {p.get('prenom', '')} {p.get('nom', '')}")
@@ -1607,7 +1655,7 @@ class NurseLogEngine:
         lignes.append(f"Date: {rapport.get('metadata', {}).get('date', '')} "
                      f"{rapport.get('metadata', {}).get('heure', '')}")
         lignes.append("")
-        
+
         # Évaluation
         eval_data = rapport.get("evaluation", {})
         if eval_data.get("Signes vitaux"):
@@ -1615,28 +1663,28 @@ class NurseLogEngine:
             for k, v in eval_data["Signes vitaux"].items():
                 lignes.append(f"  {k}: {v}")
             lignes.append("")
-        
+
         # Soins
         if rapport.get("soins"):
             lignes.append("--- SOINS RÉALISÉS ---")
             for soin in rapport["soins"]:
                 lignes.append(f"  ✅ {soin}")
             lignes.append("")
-        
+
         # Alertes
         if rapport.get("alertes"):
             lignes.append("--- ALERTES ---")
             for alerte in rapport["alertes"]:
                 lignes.append(f"  ⚠️ {alerte}")
             lignes.append("")
-        
+
         # Plan
         if rapport.get("plan"):
             lignes.append("--- PLAN DE SOINS ---")
             for action in rapport["plan"]:
                 lignes.append(f"  📌 {action}")
             lignes.append("")
-        
+
         # Médicaments
         if rapport.get("medicaments"):
             lignes.append("--- MÉDICAMENTS ---")
@@ -1644,7 +1692,7 @@ class NurseLogEngine:
                 voie = f" ({med['voie']})" if med.get('voie') else ""
                 lignes.append(f"  💊 {med.get('nom', 'N/A')} — {med.get('dose', '')} {med.get('unite', '')}{voie}")
             lignes.append("")
-        
+
         # Transmission SBAr
         transmissions = rapport.get("transmissions", [])
         if transmissions:
@@ -1654,30 +1702,30 @@ class NurseLogEngine:
                     if section != "format":
                         lignes.append(f"  {section}: {contenu}")
             lignes.append("")
-        
+
         lignes.append("=" * 60)
         lignes.append("Généré par NurseLog AI v" + self.version)
         lignes.append("=" * 60)
-        
+
         return "\n".join(lignes)
 
-    def generer_rapport_structure(self, patient_data: Dict[str, Any], evaluation: Dict, soins: List[str], alertes: List[str], plan: List[str]) -> Dict[str, Any]:
+    def generer_rapport_structure(self, patient_data: dict[str, Any], evaluation: dict, soins: list[str], alertes: list[str], plan: list[str]) -> dict[str, Any]:
         """
         Génère un rapport directement depuis des champs structurés (mode Manuel).
         Pas de parsing regex — les données sont déjà structurées.
-        
+
         Args:
             patient_data: {nom, prenom, chambre, date_naissance, numero_dossier, quart, langue, type_rapport}
             evaluation: Dictionnaire des signes vitaux et évaluations
             soins: Liste des soins réalisés (déjà en texte)
             alertes: Liste des alertes
             plan: Liste des actions du plan
-        
+
         Returns:
             Dictionnaire structuré conforme au template belge
         """
         rapport = self._copier_template()
-        
+
         # Métadonnées
         maintenant = datetime.datetime.now()
         rapport["metadata"]["date"] = maintenant.strftime("%Y-%m-%d")
@@ -1685,35 +1733,35 @@ class NurseLogEngine:
         rapport["metadata"]["quart"] = patient_data.get("quart", "")
         rapport["metadata"]["type_rapport"] = patient_data.get("type_rapport", "Rapport de soins standard")
         rapport["metadata"]["langue"] = patient_data.get("langue", "Français")
-        
+
         # Patient
         rapport["patient"]["nom"] = patient_data.get("nom", "")
         rapport["patient"]["prenom"] = patient_data.get("prenom", "")
         rapport["patient"]["date_naissance"] = patient_data.get("date_naissance", "")
         rapport["patient"]["chambre"] = patient_data.get("chambre", "")
         rapport["patient"]["numero_dossier"] = patient_data.get("numero_dossier", "")
-        
+
         # Évaluation (déjà structurée)
         rapport["evaluation"] = evaluation if evaluation else self._evaluation_vide()
-        
+
         # Soins, alertes, plan (déjà en liste)
         rapport["soins"] = soins if soins else []
         rapport["alertes"] = alertes if alertes else []
         rapport["plan"] = plan if plan else []
-        
+
         # Codes NAA — mapping automatique depuis les soins
         texte_soins = " ".join(soins).lower() if soins else ""
         rapport["codes_naa"] = self._mapper_codes_naa(texte_soins)
-        
+
         # Médicaments — extraction depuis le texte des soins
         rapport["medicaments"] = self._extraire_medicaments(" ".join(soins))
-        
+
         # Transmission SBAr
         rapport["transmissions"] = self._generer_transmissions(" ".join(soins), rapport)
-        
+
         return rapport
 
-    def _evaluation_vide(self) -> Dict:
+    def _evaluation_vide(self) -> dict:
         """Retourne une structure d'évaluation vide."""
         return {
             "Signes vitaux": {},
@@ -1726,57 +1774,58 @@ class NurseLogEngine:
             "État psychologique": "",
         }
 
-    def valider_rapport(self, rapport: Dict) -> tuple[bool, List[str]]:
+    def valider_rapport(self, rapport: dict) -> tuple[bool, list[str]]:
         """
         Valide la complétude du rapport avec vérifications croisées cliniques.
-        
+
         Vérifications de base :
           - Identification patient
           - Signes vitaux
           - Soins documentés
           - Plan de soins
-        
+
         Vérifications croisées (logique clinique) :
           - Douleur ≥ 7 → traitement antalgique documenté ?
           - Fièvre ≥ 38.5 → antipyrétique ou surveillance ?
           - SpO2 < 95 → oxygénothérapie ou alerte médecin ?
           - Hypotension → surveillance renforcée ?
           - Hypoglycémie → traitement ou surveillance ?
-        
+
         Returns:
             (est_valide, liste_des_warnings)
         """
         warnings = []
-        
+
         # --- Vérifications de base ---
         patient = rapport.get("patient", {})
         if not patient.get("nom"):
             warnings.append("⚠️ Nom du patient manquant")
         if not patient.get("prenom"):
             warnings.append("⚠️ Prénom du patient manquant")
-        
+
         sv = rapport.get("evaluation", {}).get("Signes vitaux", {})
         if not sv:
             warnings.append("⚠️ Aucun signe vital enregistré")
-        
+
         if not rapport.get("soins"):
             warnings.append("⚠️ Aucun soin documenté")
-        
+
         if not rapport.get("plan"):
             warnings.append("⚠️ Aucun plan de soins défini")
-        
+
         # --- Vérifications croisées cliniques ---
         texte_complet = " ".join([
+            rapport.get("dictee_originale", ""),
             " ".join(rapport.get("soins", [])),
             " ".join(rapport.get("alertes", [])),
             " ".join(rapport.get("plan", [])),
             str(rapport.get("evaluation", {}).get("Confort douleur", "")),
             str(rapport.get("evaluation", {}).get("État général", "")),
         ]).lower()
-        
+
         medicaments = rapport.get("medicaments", [])
         noms_meds = " ".join(m.get("nom", "").lower() for m in medicaments)
-        
+
         # 1. Douleur sévère (≥ 7) → traitement antalgique ?
         douleur_val = rapport.get("evaluation", {}).get("Confort douleur", "")
         match_douleur = re.search(r'(\d{1,2})/10', douleur_val)
@@ -1792,7 +1841,7 @@ class NurseLogEngine:
                         f"🔴 Douleur {douleur_score}/10 — aucun traitement antalgique documenté. "
                         "Vérifier si un traitement a été administré ou si le médecin a été informé."
                     )
-        
+
         # 2. Fièvre élevée (≥ 38.5) → antipyrétique ou surveillance ?
         temp_val = sv.get("Température", "")
         match_temp = re.search(r'(\d+(?:\.\d+)?)', temp_val)
@@ -1811,7 +1860,7 @@ class NurseLogEngine:
                         f"🔴 Fièvre {temp}°C — aucun antipyrétique ni surveillance documentée. "
                         "Vérifier le protocole."
                     )
-        
+
         # 3. SpO2 < 95% → oxygénothérapie ou alerte ?
         spo2_val = sv.get("SpO2", "")
         match_spo2 = re.search(r'(\d{2,3})', spo2_val)
@@ -1829,7 +1878,7 @@ class NurseLogEngine:
                         f"🔴 SpO2 {spo2}% — aucune oxygénothérapie ni alerte médecin documentée. "
                         "Vérifier la prise en charge."
                     )
-        
+
         # 4. Hypotension (TA < 90/60) → surveillance renforcée ?
         ta_val = sv.get("Tension artérielle", "")
         match_ta = re.search(r'(\d{2,3})/(\d{2,3})', ta_val)
@@ -1844,7 +1893,7 @@ class NurseLogEngine:
                         f"🔴 Hypotension ({sys}/{dias}) — aucune surveillance renforcée ni alerte médecin. "
                         "Vérifier la prise en charge."
                     )
-        
+
         # 5. Hypoglycémie (< 0.6 g/L) → traitement ?
         glyc_val = sv.get("Glycémie", "")
         match_glyc = re.search(r'([\d.]+)', glyc_val)
@@ -1858,5 +1907,5 @@ class NurseLogEngine:
                         f"🔴 Hypoglycémie ({glyc} g/L) — aucun traitement ni alerte médecin. "
                         "Vérifier la prise en charge."
                     )
-        
+
         return (len(warnings) == 0, warnings)

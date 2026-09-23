@@ -31,8 +31,9 @@ env/
 .DS_Store
 Thumbs.db
 
-# Streamlit
-.streamlit/
+# Streamlit (config partagée conservée)
+.streamlit/*
+!.streamlit/config.toml
 
 # Tests
 .pytest_cache/
@@ -44,3 +45,8 @@ docs/_build/
 
 # Logs
 *.log
+logs/
+
+# Sorties de tests / debug
+test_debug.txt
+test_output*.txt

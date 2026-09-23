@@ -2,7 +2,7 @@
 # Prototype MVP — Documentation Infirmière IA Belgique
 
 # Interface utilisateur
-streamlit>=1.30.0
+streamlit>=1.49.0
 
 # Pour exports PDF (production)
 reportlab>=4.0.0

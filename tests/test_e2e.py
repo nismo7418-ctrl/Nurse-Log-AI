@@ -9,9 +9,7 @@ de soins et le valide avant export.
 """
 
 import json
-import os
 import sys
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -20,7 +18,6 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from nurselog_engine import NurseLogEngine
-
 
 # ============================================================
 # Fixtures
@@ -331,7 +328,7 @@ class TestLoggingIntegration:
 
     def test_timed_context(self):
         """Le context manager timed fonctionne."""
-        from logging_config import timed, get_logger
+        from logging_config import get_logger, timed
         logger = get_logger("test_timed")
         with timed("operation_teste", logger=logger):
             pass  # Opération simulée

@@ -12,7 +12,6 @@ Couvre :
 
 from __future__ import annotations
 
-import io
 import json
 import os
 import time
@@ -25,7 +24,6 @@ from audio_relay import (
     get_audio_relay,
     mime_vers_extension,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -162,6 +160,24 @@ class TestPostAudio:
             pytest.fail("Devrait lever HTTPError 400")
         except urllib.error.HTTPError as e:
             assert e.code == 400
+            body = json.loads(e.read().decode())
+            assert body["ok"] is False
+
+    def test_post_trop_volumineux(self, relay):
+        """Content-Length au-dessus du plafond → 413 (sans lecture du corps)."""
+        import urllib.error
+
+        req = urllib.request.Request(
+            f"{relay.url}/audio",
+            data=b"x",
+            headers={"Content-Type": "audio/webm", "Content-Length": str(10**9)},
+            method="POST",
+        )
+        try:
+            urllib.request.urlopen(req, timeout=5)
+            pytest.fail("Devrait lever HTTPError 413")
+        except urllib.error.HTTPError as e:
+            assert e.code == 413
             body = json.loads(e.read().decode())
             assert body["ok"] is False
 

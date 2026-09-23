@@ -3,8 +3,8 @@ conftest.py — Configuration pytest pour NurseLog AI
 Assure que src/ est dans le path Python pour tous les tests.
 """
 
-import sys
 import os
+import sys
 
 # Ajouter le dossier src au path
 src_path = os.path.join(os.path.dirname(__file__), "..", "src")

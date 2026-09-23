@@ -4,8 +4,8 @@
 > Transformez votre dictée naturelle en rapports de soins structurés, conformes aux standards belges (KCE, eHealth, NAA).
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue)](https://python.org)
-[![Tests](https://img.shields.io/badge/Tests-148%20passing-green)]()
-[![Streamlit](https://img.shields.io/badge/Streamlit-1.30+-orange)](https://streamlit.io)
+[![Tests](https://img.shields.io/badge/Tests-177%20passing-green)]()
+[![Streamlit](https://img.shields.io/badge/Streamlit-1.49+-orange)](https://streamlit.io)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
 ---
@@ -109,12 +109,12 @@ NurseLog AI/
 
 ### Principes de conception
 
-1. **Conformité RGPD** : Aucune donnée envoyée à l'extérieur
+1. **Conformité RGPD** : Aucune donnée envoyée à l'extérieur (sauf option opt-in API OpenAI — voir section Transcription)
 2. **Minimalisation des données** : Seulement les données nécessaires sont stockées
 3. **Sécurité des données** : Données sensibles chiffrées
 4. **Local-first** : Application fonctionne sans connexion
 5. **Responsive design** : Adaptation mobile/tablette
-6. **Tests unitaires** : 148 tests couvrant la logique métier
+6. **Tests unitaires** : 177 tests couvrant la logique métier
 7. **Documentation complète** : Pour chaque composant
 8. **CI/CD** : Pipeline GitHub Actions sur chaque push/PR
 
@@ -136,28 +136,43 @@ pytest tests/test_engine.py -v
 make test
 ```
 
-**Statut actuel : 148 passed, 0 failed**
+**Statut actuel : 177 passed, 0 failed**
 
 ### Répartition des tests
 
 | Fichier | Tests | Couverture |
 |---|---|---|
-| `test_engine.py` | 88 | Extraction, regex, scoring, SBAr, NL |
-| `test_phase2.py` | 27 | Scoring, cross-ref, voie médicamenteuse, NL |
-| `test_audio_relay.py` | 27 | Relay HTTP, POST, polling, timeout |
-| `test_database.py` | 4 | CRUD, brouillons, profils |
-| `test_nl_support.py` | 2 | Support néerlandais |
+| `test_engine.py` | 71 | Extraction, regex, scoring, SBAr, NL, transcription |
+| `test_phase2.py` | 33 | Scoring, cross-ref, voie médicamenteuse, NL |
+| `test_audio_relay.py` | 28 | Relay HTTP, POST, polling, timeout, limite de taille |
+| `test_e2e.py` | 19 | Parcours complet UI, profil, signature, export |
+| `test_database.py` | 22 | CRUD, brouillons, profils, recherche SQL, isolation brouillons |
+| `test_nl_support.py` | 4 | Support néerlandais |
 
 ---
 
 ## 🔒 Confidentialité & RGPD
 
-- ✅ **100% local** — Aucune donnée ne quitte la machine
+- ✅ **Local-first** — Par défaut, aucune donnée ne quitte la machine
 - ✅ **SQLite** — Base de données locale, pas de serveur
 - ✅ **Minimisation** — Seules les données cliniques nécessaires sont stockées
 - ✅ **Audit trail** — Logging structuré des actions infirmières (Phase 3)
 - 🔜 **Chiffrement** — Phase 2 (chiffrement au repos)
 - 🔜 **eHealth** — Intégration SumEHR (Phase 3)
+
+### 🔒 RGPD — Transcription vocale
+
+| Backend | Comportement |
+|---|---|
+| **Local** (défaut) | Whisper local (whisper.cpp / openai-whisper). L'audio ne quitte jamais la machine. |
+| **OpenAI** (opt-in) | Envoi du fichier audio à l'API OpenAI (`whisper-1`). **Une DPA (Data Processing Agreement) doit être fournie par l'utilisateur** avant tout usage avec des données patients réelles. |
+
+**Sélection** : variable d'environnement `NURSELOG_TRANSCRIPTION_BACKEND`
+- `local` → local uniquement (aucun fallback OpenAI, erreur si Whisper absent)
+- `openai` → OpenAI d'abord, fallback local si indisponible
+- *non défini* → local d'abord, puis OpenAI si local indisponible
+
+> ⚠️ **Avertissement** : l'option `openai` constitue un transfert de données de santé hors UE. Ne l'activez que si vous disposez d'un accord de sous-traitance (DPA) conforme au RGPD avec OpenAI.
 
 ---
 

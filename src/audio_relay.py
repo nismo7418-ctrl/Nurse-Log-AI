@@ -33,8 +33,10 @@ import tempfile
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, Dict, Optional
+from typing import Any
 
+# Plafond de taille des uploads (mémoire chargée en une fois dans do_POST)
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 Mo — bien au-delà du max de 5 min de dictée
 
 # Mapping type MIME (navigateur) → extension de fichier (reconnue par le moteur)
 _MIME_VERS_EXTENSION = {
@@ -54,7 +56,7 @@ def mime_vers_extension(mime: str) -> str:
     return _MIME_VERS_EXTENSION.get(cle, "webm")
 
 
-def _supprimer_fichier_silencieux(chemin: Optional[str]) -> None:
+def _supprimer_fichier_silencieux(chemin: str | None) -> None:
     """Supprime un fichier sans jamais lever d'exception."""
     try:
         if chemin and os.path.exists(chemin):
@@ -68,16 +70,16 @@ class _EtatRelay:
 
     def __init__(self) -> None:
         self._verrou = threading.Lock()
-        self._dernier: Optional[Dict[str, Any]] = None
+        self._dernier: dict[str, Any] | None = None
 
-    def definir_dernier(self, info: Dict[str, Any]) -> None:
+    def definir_dernier(self, info: dict[str, Any]) -> None:
         with self._verrou:
             precedent = self._dernier
             self._dernier = info
         # Libère le fichier de l'enregistrement précédent (on ne garde que le dernier)
         _supprimer_fichier_silencieux(precedent.get("path") if precedent else None)
 
-    def dernier(self) -> Optional[Dict[str, Any]]:
+    def dernier(self) -> dict[str, Any] | None:
         with self._verrou:
             return dict(self._dernier) if self._dernier else None
 
@@ -96,14 +98,14 @@ class AudioRelay:
     - Ne conserve que le dernier enregistrement (les précédents sont supprimés).
     """
 
-    _instance: Optional["AudioRelay"] = None
+    _instance: AudioRelay | None = None
     _verrou_instance = threading.Lock()
 
     def __init__(self, host: str = "127.0.0.1", enregistrer_atexit: bool = False) -> None:
         self._host = host
         self.etat = _EtatRelay()
-        self._serveur: Optional[ThreadingHTTPServer] = None
-        self._thread: Optional[threading.Thread] = None
+        self._serveur: ThreadingHTTPServer | None = None
+        self._thread: threading.Thread | None = None
         self._port = 0
         self._demarrer()
         if enregistrer_atexit:
@@ -152,7 +154,7 @@ class AudioRelay:
         """
         return self._thread is not None and self._thread.is_alive()
 
-    def get_latest_recording(self) -> Optional[Dict[str, Any]]:
+    def get_latest_recording(self) -> dict[str, Any] | None:
         """Renvoie le dernier enregistrement reçu, ou ``None``.
 
         Clés : ``path`` (fichier temporaire), ``taille`` (octets),
@@ -161,7 +163,7 @@ class AudioRelay:
         return self.etat.dernier()
 
     @classmethod
-    def get_instance(cls) -> "AudioRelay":
+    def get_instance(cls) -> AudioRelay:
         """Singleton par processus (survit aux reruns Streamlit)."""
         with cls._verrou_instance:
             if cls._instance is None:
@@ -199,6 +201,11 @@ class AudioRelay:
                     return
                 try:
                     longueur = int(self.headers.get("Content-Length", 0) or 0)
+                    if longueur > MAX_UPLOAD_BYTES:
+                        self._repondre(
+                            413, {"ok": False, "erreur": "fichier trop volumineux"}
+                        )
+                        return
                     corps = self.rfile.read(longueur) if longueur > 0 else b""
                     if not corps:
                         self._repondre(400, {"ok": False, "erreur": "corps vide"})
@@ -241,7 +248,7 @@ class AudioRelay:
                 else:
                     self._repondre(404, {"ok": False, "erreur": "route inconnue"})
 
-            def _repondre(self, code: int, payload: Dict[str, Any]) -> None:
+            def _repondre(self, code: int, payload: dict[str, Any]) -> None:
                 donnees = json.dumps(payload).encode("utf-8")
                 self.send_response(code)
                 self._entetes_cors()

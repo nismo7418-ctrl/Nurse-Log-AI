@@ -39,8 +39,13 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copier le code source
 COPY src/ ./src/
+COPY app.py ./app.py
 COPY .streamlit/ ./.streamlit/
 COPY README.md .
+
+# La base SQLite vit dans le volume persistant /app/data
+ENV NURSELOG_DB_PATH=/app/data/nurselog.db
+RUN mkdir -p /app/data
 
 # Volume pour la base de données (persistance)
 VOLUME ["/app/data"]
@@ -59,5 +64,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health')" || exit 1
 
 # Lancer Streamlit
-ENTRYPOINT ["streamlit", "run", "src/app.py"]
+ENTRYPOINT ["streamlit", "run", "app.py"]
 CMD ["--server.headless=true", "--server.port=8501", "--server.address=0.0.0.0", "--browser.gatherUsageStats=false"]

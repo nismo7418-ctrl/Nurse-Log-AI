@@ -167,7 +167,7 @@ def audit_log(action: str, **kwargs: Any) -> str:
 # Context manager pour mesurer la durée
 # ============================================================
 
-class timed:
+class timed:  # noqa: N801 — nom public stable, utilisé dans les tests
     """Context manager qui logge la durée d'un bloc de code.
 
     Usage :
@@ -180,7 +180,7 @@ class timed:
         self.logger = logger or get_logger("nurselog")
         self._start: float = 0.0
 
-    def __enter__(self) -> "timed":
+    def __enter__(self) -> timed:
         import time
         self._start = time.perf_counter()
         return self

@@ -16,7 +16,11 @@ build
 docs
 tests
 .pytest_cache
-.streamlit/config.toml
+logs
+*.log
+streamlit_app.log
+test_debug.txt
+test_output*.txt
 Dockerfile
 docker-compose.yml
 *.md

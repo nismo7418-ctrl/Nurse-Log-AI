@@ -1,5 +1,0 @@
-Soins: ["Injection administrée", "Oxygénation / SpO2 vérifiée (oxygen)"]
-Alertes: ["⚠️ Hypoxémie modérée (SpO2 < 95%)"]
-Plan: ["Réévaluation douleur après traitement"]
-Medicaments: [{"nom": "Injection morphine", "dose": "2", "unite": "mg", "voie": "IV"}, {"nom": "morphine", "dose": "2", "unite": "mg", "voie": "IV"}]
-Etat general: Patient conscient et éveillé
